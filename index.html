@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prosty Planer</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <script>try{const t=localStorage.getItem('pp_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-logo">
+        <img src="/logo.png" alt="Prosty Planer" class="sidebar-logo-icon" />
+        <div class="sidebar-logo-text">Prosty Planer<span>v0.1</span></div>
+        <button class="sidebar-toggle" id="btn-sidebar-toggle" title="Zwiń sidebar"><i class="fa-solid fa-angles-left"></i></button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="sidebar-section-label">Menu</div>
+        <button class="sidebar-nav-item active" data-page="dashboard">
+          <i class="fa-solid fa-chart-pie"></i>
+          Dashboard
+        </button>
+        <button class="sidebar-nav-item" data-page="materialy">
+          <i class="fa-solid fa-boxes-stacked"></i>
+          Materiały
+        </button>
+        <button class="sidebar-nav-item" data-page="robocizny">
+          <i class="fa-solid fa-helmet-safety"></i>
+          Robocizny
+        </button>
+        <button class="sidebar-nav-item" data-page="zlecenia">
+          <i class="fa-solid fa-file-invoice-dollar"></i>
+          Zlecenia
+        </button>
+        <button class="sidebar-nav-item" data-page="mojafirma">
+          <i class="fa-solid fa-briefcase"></i>
+          Moja Firma
+        </button>
+        <button class="sidebar-nav-item" data-page="kategorie">
+          <i class="fa-solid fa-tags"></i>
+          Kategorie
+        </button>
+        <button class="sidebar-nav-item" data-page="ustawienia">
+          <i class="fa-solid fa-gear"></i>
+          Ustawienia
+        </button>
+      </nav>
+
+      <div class="sidebar-section-label">Filtruj</div>
+      <div id="sidebar-categories"></div>
+
+      <div class="sidebar-footer">
+        <span class="sidebar-footer-stats" id="sidebar-stats">0 materiałów</span>
+        <button class="sidebar-theme-btn" id="btn-theme-toggle" title="Zmień motyw"><i class="fa-solid fa-sun"></i></button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="main-wrapper">
+      <!-- Topbar -->
+      <header class="topbar">
+        <h1 class="topbar-title" id="topbar-title">Materiały</h1>
+        <div class="topbar-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="global-search" placeholder="Szukaj materiałów... (Ctrl+K)" />
+        </div>
+        <div class="topbar-actions" id="topbar-actions"></div>
+      </header>
+
+      <!-- Pages -->
+      <div class="page-container">
+        <div id="page-dashboard" class="page"></div>
+        <div id="page-materialy" class="page hidden"></div>
+        <div id="page-robocizny" class="page hidden"></div>
+        <div id="page-zlecenia" class="page hidden"></div>
+        <div id="page-mojafirma" class="page hidden"></div>
+        <div id="page-kategorie" class="page hidden"></div>
+        <div id="page-ustawienia" class="page hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal overlay (reusable) -->
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal-box" id="modal-box"></div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

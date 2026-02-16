@@ -1,0 +1,69 @@
+name: Build & Release
+
+# Kiedy uruchomic:
+# - Push taga v* (np. v0.1.0, v1.0.0) → buduje i tworzy Release
+# - Reczne uruchomienie z GitHub UI → buduje bez Release
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      # 1. Pobierz kod
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Node.js
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # 3. Rust
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Cache Rust dependencies
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # 4. Install npm dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # 5. Build Tauri app
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Prosty Planer ${{ github.ref_name }}'
+          releaseBody: |
+            Nowa wersja Prosty Planer.
+            
+            **Instalacja:**
+            - Windows: Pobierz plik `.exe` i uruchom installer
+            - macOS: Pobierz plik `.dmg`, otwórz i przeciągnij do Applications
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
