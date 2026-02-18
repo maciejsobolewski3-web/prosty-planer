@@ -670,7 +670,7 @@ async function handleConfirm(msgIdx: number): Promise<void> {
     if (getLastZlecenieId() && onNavigate) {
       setTimeout(() => {
         onNavigate!("zlecenia", getLastZlecenieId()!);
-        showToast("Zlecenie utworzone przez AI", "success");
+        showToast("Zlecenie utworzone przez AI");
       }, 500);
     } else {
       // Refresh current view even without navigation
@@ -765,7 +765,7 @@ async function sendMessage(): Promise<void> {
       if (getLastZlecenieId() && onNavigate) {
         setTimeout(() => {
           onNavigate!("zlecenia", getLastZlecenieId()!);
-          showToast("Akcja AI wykonana", "success");
+          showToast("Akcja AI wykonana");
         }, 500);
       }
 
@@ -839,5 +839,5 @@ function clearHistory(): void {
   localStorage.removeItem(HISTORY_KEY);
   renderMessages();
   setTimeout(() => bindExampleButtons(), 50);
-  showToast("Historia wyczyszczona", "success");
+  showToast("Historia wyczyszczona");
 }
