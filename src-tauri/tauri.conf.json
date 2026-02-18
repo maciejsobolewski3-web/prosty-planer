@@ -24,6 +24,20 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["prostyplaner"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5QjQ4MjY4MzM2MTI1OTcKUldTWEpXRXphSUswS1h5MVdxcjRaa1E2b3pud25UejArdEd0dXBlOTR6ZGcwaFljdTNWemw3ZEMK",
+      "endpoints": [
+        "https://github.com/maciejsobolewski3-web/prosty-planer/releases/latest/download/latest.json"
+      ],
+      "dialog": true
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "dmg"],
@@ -40,6 +54,7 @@
         "languages": ["Polish", "English"],
         "displayLanguageSelector": false
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   }
 }

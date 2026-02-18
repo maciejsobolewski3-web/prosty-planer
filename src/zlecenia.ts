@@ -249,6 +249,7 @@ function renderDetail(zId: number): void {
     <button class="btn" id="btn-export-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>
     <button class="btn" id="btn-save-template"><i class="fa-solid fa-bookmark"></i> Szablon</button>
     <button class="btn" id="btn-edit-zlecenie"><i class="fa-solid fa-gear"></i> Ustawienia</button>
+    <button class="btn" id="btn-add-dojazd"><i class="fa-solid fa-car"></i> Dojazd</button>
     <button class="btn btn-primary" id="btn-add-item"><i class="fa-solid fa-plus"></i> Dodaj pozycję</button>
   `;
   document.getElementById("btn-back-list")!.addEventListener("click", () => { activeZlecenieId = null; render(); });
@@ -257,6 +258,7 @@ function renderDetail(zId: number): void {
   document.getElementById("btn-export-csv")!.addEventListener("click", () => exportCsv(z));
   document.getElementById("btn-save-template")!.addEventListener("click", () => openSaveTemplateModal(z.id));
   document.getElementById("btn-edit-zlecenie")!.addEventListener("click", () => openZlecenieModal(z));
+  document.getElementById("btn-add-dojazd")!.addEventListener("click", () => openDojazdModal(z.id));
   document.getElementById("btn-add-item")!.addEventListener("click", () => openAddItemModal(z.id));
 
   const totals = calcTotals(z);
@@ -391,10 +393,11 @@ function renderDetail(zId: number): void {
   // ─── Profitability panel ──────────────────────────────────────
   const linkedExpenses = getExpensesForZlecenie(z.id);
   const totalExpenses = linkedExpenses.reduce((s, e) => s + e.amount, 0);
-  const revenue = totals.bruttoWithMarkup;
-  const profit = revenue - totalExpenses;
-  const marginPct = revenue > 0 ? (profit / revenue) * 100 : 0;
-  const hasExpenses = linkedExpenses.length > 0;
+  const totalCosts = totals.costMaterials + totals.costLabor + totalExpenses;
+  const revenueNetto = totals.nettoWithMarkup;
+  const profit = revenueNetto - totalCosts;
+  const marginPct = revenueNetto > 0 ? (profit / revenueNetto) * 100 : 0;
+  const hasCosts = totalCosts > 0;
 
   const profitHtml = `
     <div class="profit-panel">
@@ -404,26 +407,57 @@ function renderDetail(zId: number): void {
       </div>
       <div class="profit-cards">
         <div class="profit-card">
-          <div class="profit-card-label">Wycena (brutto)</div>
-          <div class="profit-card-value">${formatPrice(revenue)} zł</div>
+          <div class="profit-card-label">Przychód netto</div>
+          <div class="profit-card-value">${formatPrice(revenueNetto)} zł</div>
+          <div class="profit-card-sub">brutto: ${formatPrice(totals.bruttoWithMarkup)} zł</div>
         </div>
         <div class="profit-card">
-          <div class="profit-card-label">Koszty rzeczywiste</div>
-          <div class="profit-card-value" style="color:var(--danger)">${hasExpenses ? formatPrice(totalExpenses) + " zł" : "—"}</div>
+          <div class="profit-card-label">Koszty łącznie</div>
+          <div class="profit-card-value" style="color:var(--danger)">${hasCosts ? formatPrice(totalCosts) + " zł" : "—"}</div>
+          ${hasCosts ? `<div class="profit-card-sub">
+            mat. ${formatPrice(totals.costMaterials)} + rob. ${formatPrice(totals.costLabor)}${totalExpenses > 0 ? ` + wyd. ${formatPrice(totalExpenses)}` : ""}
+          </div>` : ""}
         </div>
         <div class="profit-card">
-          <div class="profit-card-label">Zysk</div>
-          <div class="profit-card-value" style="color:${profit >= 0 ? "var(--success)" : "var(--danger)"}">${hasExpenses ? (profit >= 0 ? "+" : "") + formatPrice(profit) + " zł" : "—"}</div>
+          <div class="profit-card-label">Zysk netto</div>
+          <div class="profit-card-value" style="color:${profit >= 0 ? "var(--success)" : "var(--danger)"}">${hasCosts ? (profit >= 0 ? "+" : "") + formatPrice(profit) + " zł" : "—"}</div>
         </div>
         <div class="profit-card">
           <div class="profit-card-label">Marża</div>
-          <div class="profit-card-value" style="color:${marginPct >= 0 ? "var(--success)" : "var(--danger)"}">${hasExpenses ? marginPct.toFixed(1).replace(".", ",") + "%" : "—"}</div>
-          ${hasExpenses ? `<div class="profit-bar"><div class="profit-bar-fill" style="width:${Math.min(Math.abs(marginPct), 100)}%;background:${marginPct >= 0 ? "var(--success)" : "var(--danger)"}"></div></div>` : ""}
+          <div class="profit-card-value" style="color:${marginPct >= 0 ? "var(--success)" : "var(--danger)"}">${hasCosts ? marginPct.toFixed(1).replace(".", ",") + "%" : "—"}</div>
+          ${hasCosts ? `<div class="profit-bar"><div class="profit-bar-fill" style="width:${Math.min(Math.abs(marginPct), 100)}%;background:${marginPct >= 0 ? "var(--success)" : "var(--danger)"}"></div></div>` : ""}
         </div>
       </div>
-      ${hasExpenses ? `
+
+      <!-- Cost breakdown -->
+      ${z.items.length > 0 ? `
+        <div class="profit-cost-breakdown">
+          <div class="profit-expenses-title">Koszty bazowe z pozycji</div>
+          ${totals.costMaterials > 0 ? `<div class="profit-expense-row">
+            <span class="expense-badge" style="color:var(--accent);background:var(--accent-bg);font-size:10px"><i class="fa-solid fa-boxes-stacked" style="font-size:9px"></i> Materiały</span>
+            <span class="profit-expense-name">${z.items.filter(i => i.type === "material").length} poz.</span>
+            <span></span>
+            <span class="profit-expense-amount">${formatPrice(totals.costMaterials)} zł</span>
+          </div>` : ""}
+          ${totals.costLabor > 0 ? `<div class="profit-expense-row">
+            <span class="expense-badge" style="color:var(--warning);background:var(--warning)18;font-size:10px"><i class="fa-solid fa-helmet-safety" style="font-size:9px"></i> Robocizna</span>
+            <span class="profit-expense-name">${z.items.filter(i => i.type === "labor").length} poz.</span>
+            <span></span>
+            <span class="profit-expense-amount">${formatPrice(totals.costLabor)} zł</span>
+          </div>` : ""}
+          ${totals.markupAmount > 0 ? `<div class="profit-expense-row" style="color:var(--success)">
+            <span class="expense-badge" style="color:var(--success);background:var(--success)18;font-size:10px"><i class="fa-solid fa-percent" style="font-size:9px"></i> Narzut</span>
+            <span class="profit-expense-name">mat. ${z.markup_materials || 0}% / rob. ${z.markup_labor || 0}%</span>
+            <span></span>
+            <span class="profit-expense-amount">+${formatPrice(totals.markupAmount)} zł</span>
+          </div>` : ""}
+        </div>
+      ` : ""}
+
+      <!-- Linked expenses -->
+      ${linkedExpenses.length > 0 ? `
         <div class="profit-expenses">
-          <div class="profit-expenses-title">Powiązane wydatki (${linkedExpenses.length})</div>
+          <div class="profit-expenses-title">Dodatkowe wydatki (${linkedExpenses.length})</div>
           ${linkedExpenses.map((e) => {
             const cat = EXPENSE_CATEGORIES[e.category] || EXPENSE_CATEGORIES.inne;
             const dateStr = new Date(e.date + "T12:00:00").toLocaleDateString("pl-PL", { day: "numeric", month: "short" });
@@ -437,8 +471,9 @@ function renderDetail(zId: number): void {
         </div>
       ` : `
         <div class="profit-empty">
-          <i class="fa-solid fa-link" style="color:var(--text-muted)"></i>
-          Brak wydatków — kliknij <strong>Dodaj wydatek</strong> żeby śledzić rentowność tego zlecenia.
+          <i class="fa-solid fa-circle-check" style="color:var(--success)"></i>
+          Koszty materiałów i robocizny liczone automatycznie z pozycji.
+          Kliknij <strong>Dodaj wydatek</strong> żeby dodać dodatkowe koszty (dojazd, narzędzia itp.).
         </div>
       `}
     </div>
@@ -595,6 +630,119 @@ function initDragDrop(page: HTMLElement, zlecenieId: number): void {
 // ═══════════════════════════════════════════════════════════════════
 // ADD ITEM MODAL
 // ═══════════════════════════════════════════════════════════════════
+// ─── Dojazd (travel cost) modal ─────────────────────────────────
+const DOJAZD_DEFAULTS_KEY = "pp_dojazd_defaults";
+
+interface DojazdDefaults {
+  spalanie: number;   // l/100km
+  cenaPaliwa: number; // zł/l
+}
+
+function getDojazdDefaults(): DojazdDefaults {
+  try {
+    const raw = localStorage.getItem(DOJAZD_DEFAULTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { spalanie: 8, cenaPaliwa: 6.5 };
+}
+
+function saveDojazdDefaults(d: DojazdDefaults): void {
+  localStorage.setItem(DOJAZD_DEFAULTS_KEY, JSON.stringify(d));
+}
+
+function openDojazdModal(zlecenieId: number): void {
+  const defaults = getDojazdDefaults();
+
+  openModal(`
+    <h2 class="modal-title"><i class="fa-solid fa-car"></i> Dodaj dojazd</h2>
+    <div class="form-grid-2">
+      <div class="field">
+        <label>Dystans (km) — w jedną stronę</label>
+        <input type="number" id="f-dojazd-km" min="0" step="0.1" placeholder="np. 25" />
+      </div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="f-dojazd-roundtrip" checked style="width:auto" />
+          Tam i z powrotem
+        </label>
+      </div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field">
+        <label>Spalanie (l/100km)</label>
+        <input type="number" id="f-dojazd-spalanie" min="0" step="0.1" value="${defaults.spalanie}" />
+      </div>
+      <div class="field">
+        <label>Cena paliwa (zł/l)</label>
+        <input type="number" id="f-dojazd-cena" min="0" step="0.01" value="${defaults.cenaPaliwa}" />
+      </div>
+    </div>
+    <div class="dojazd-calc" id="dojazd-calc" style="padding:12px 0;font-size:14px;font-weight:600;color:var(--accent)"></div>
+    <div class="modal-footer">
+      <button class="btn" id="btn-dojazd-cancel">Anuluj</button>
+      <button class="btn btn-primary" id="btn-dojazd-save"><i class="fa-solid fa-plus"></i> Dodaj do zlecenia</button>
+    </div>
+  `, undefined, true);
+
+  const kmInput = document.getElementById("f-dojazd-km") as HTMLInputElement;
+  const roundtripInput = document.getElementById("f-dojazd-roundtrip") as HTMLInputElement;
+  const spalanieInput = document.getElementById("f-dojazd-spalanie") as HTMLInputElement;
+  const cenaInput = document.getElementById("f-dojazd-cena") as HTMLInputElement;
+  const calcEl = document.getElementById("dojazd-calc")!;
+
+  function updateCalc() {
+    const km = parseFloat(kmInput.value) || 0;
+    const roundtrip = roundtripInput.checked;
+    const totalKm = roundtrip ? km * 2 : km;
+    const spalanie = parseFloat(spalanieInput.value) || 0;
+    const cena = parseFloat(cenaInput.value) || 0;
+    const cost = (totalKm * spalanie / 100) * cena;
+    if (totalKm > 0) {
+      calcEl.innerHTML = `<i class="fa-solid fa-calculator"></i> ${totalKm.toFixed(1)} km × ${spalanie} l/100km × ${formatPrice(cena)} zł/l = <strong>${formatPrice(cost)} zł netto</strong>`;
+    } else {
+      calcEl.innerHTML = "";
+    }
+  }
+
+  kmInput.addEventListener("input", updateCalc);
+  roundtripInput.addEventListener("change", updateCalc);
+  spalanieInput.addEventListener("input", updateCalc);
+  cenaInput.addEventListener("input", updateCalc);
+  setTimeout(() => kmInput.focus(), 50);
+
+  document.getElementById("btn-dojazd-cancel")!.addEventListener("click", closeModal);
+  document.getElementById("btn-dojazd-save")!.addEventListener("click", () => {
+    const km = parseFloat(kmInput.value) || 0;
+    if (km <= 0) { kmInput.focus(); return; }
+
+    const roundtrip = roundtripInput.checked;
+    const totalKm = roundtrip ? km * 2 : km;
+    const spalanie = parseFloat(spalanieInput.value) || 0;
+    const cena = parseFloat(cenaInput.value) || 0;
+    const cost = (totalKm * spalanie / 100) * cena;
+
+    // Save defaults for next time
+    saveDojazdDefaults({ spalanie, cenaPaliwa: cena });
+
+    const label = `Dojazd — ${totalKm.toFixed(0)} km${roundtrip ? " (tam i z powrotem)" : ""}`;
+
+    addZlecenieItem(zlecenieId, {
+      type: "labor",
+      source_id: null,
+      name: label,
+      unit: "kpl",
+      quantity: 1,
+      price_netto: Math.round(cost * 100) / 100,
+      vat_rate: 23,
+      notes: `${totalKm} km, spalanie ${spalanie} l/100km, paliwo ${cena} zł/l`,
+    });
+
+    closeModal();
+    showToast(`Dodano dojazd: ${formatPrice(cost)} zł`);
+    render();
+  });
+}
+
 function openAddItemModal(zlecenieId: number): void {
   openModal(`
     <h2 class="modal-title">Dodaj pozycję</h2>
@@ -878,7 +1026,7 @@ function openZlecenieModal(z?: Zlecenie): void {
       <button class="btn" id="btn-z-cancel">Anuluj</button>
       <button class="btn btn-primary" id="btn-z-save">${isEdit ? "Zapisz" : "Utwórz"}</button>
     </div>
-  `);
+  `, undefined, true);
 
   setTimeout(() => (document.getElementById("f-z-name") as HTMLInputElement)?.focus(), 80);
   document.getElementById("btn-z-cancel")!.addEventListener("click", closeModal);
@@ -1117,12 +1265,17 @@ interface ZlecenieTotals {
   nettoWithMarkup: number;
   vat: number;
   bruttoWithMarkup: number;
+  // Cost breakdown (base netto by type)
+  costMaterials: number;   // netto base cost of materials
+  costLabor: number;       // netto base cost of labor
 }
 
 function calcTotals(z: Zlecenie): ZlecenieTotals {
   let nettoBase = 0;
   let nettoWithMarkup = 0;
   let bruttoWithMarkup = 0;
+  let costMaterials = 0;
+  let costLabor = 0;
 
   for (const item of z.items) {
     const lineBase = item.price_netto * item.quantity;
@@ -1132,6 +1285,12 @@ function calcTotals(z: Zlecenie): ZlecenieTotals {
     nettoBase += lineBase;
     nettoWithMarkup += lineWithMarkup;
     bruttoWithMarkup += brutto(lineWithMarkup, item.vat_rate);
+
+    if (item.type === "material") {
+      costMaterials += lineBase;
+    } else {
+      costLabor += lineBase;
+    }
   }
 
   return {
@@ -1140,5 +1299,7 @@ function calcTotals(z: Zlecenie): ZlecenieTotals {
     nettoWithMarkup,
     vat: bruttoWithMarkup - nettoWithMarkup,
     bruttoWithMarkup,
+    costMaterials,
+    costLabor,
   };
 }

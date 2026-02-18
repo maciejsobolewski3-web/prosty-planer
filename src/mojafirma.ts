@@ -13,10 +13,33 @@ import {
 } from "./store";
 import { esc, openModal, closeModal, showToast, formatPrice } from "./ui";
 
-// ─── State ───────────────────────────────────────────────────────
-let currentMonth: string = new Date().toISOString().slice(0, 7);
-let filterCategory: ExpenseCategory | "all" = "all";
-let activeTab: "wydatki" | "wykresy" = "wydatki";
+// ─── State (on window to survive Vite HMR) ─────────────────────
+if (!(window as any).__ppFirmaState) {
+  (window as any).__ppFirmaState = {
+    currentMonth: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
+    filterCategory: "all",
+    activeTab: "wydatki",
+  };
+}
+const STATE = (window as any).__ppFirmaState;
+
+/** Timezone-safe "YYYY-MM" from Date (toISOString shifts to UTC!) */
+function toYM(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// Global month nav listener — register ONCE ever
+if (!(window as any).__ppMonthNavBound) {
+  (window as any).__ppMonthNavBound = true;
+  document.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    const monthBtn = target.closest("[data-go-month]") as HTMLElement | null;
+    if (monthBtn && monthBtn.dataset.goMonth) {
+      STATE.currentMonth = monthBtn.dataset.goMonth;
+      renderPage();
+    }
+  });
+}
 
 export function initMojaFirma(): void {
   document.getElementById("topbar-title")!.textContent = "Moja Firma";
@@ -33,12 +56,12 @@ function renderPage(): void {
   // Tabs
   const tabsHtml = `
     <div class="firma-tabs">
-      <button class="firma-tab${activeTab === "wydatki" ? " active" : ""}" data-ftab="wydatki"><i class="fa-solid fa-receipt"></i> Wydatki</button>
-      <button class="firma-tab${activeTab === "wykresy" ? " active" : ""}" data-ftab="wykresy"><i class="fa-solid fa-chart-column"></i> Wykresy</button>
+      <button class="firma-tab${STATE.activeTab === "wydatki" ? " active" : ""}" data-ftab="wydatki"><i class="fa-solid fa-receipt"></i> Wydatki</button>
+      <button class="firma-tab${STATE.activeTab === "wykresy" ? " active" : ""}" data-ftab="wykresy"><i class="fa-solid fa-chart-column"></i> Wykresy</button>
     </div>
   `;
 
-  if (activeTab === "wykresy") {
+  if (STATE.activeTab === "wykresy") {
     page.innerHTML = tabsHtml + `<div id="charts-container"></div>`;
     bindTabs(page);
     renderCharts();
@@ -51,7 +74,7 @@ function renderPage(): void {
 function bindTabs(page: HTMLElement): void {
   page.querySelectorAll<HTMLButtonElement>("[data-ftab]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      activeTab = btn.dataset.ftab as "wydatki" | "wykresy";
+      STATE.activeTab = btn.dataset.ftab as "wydatki" | "wykresy";
       renderPage();
     });
   });
@@ -59,8 +82,8 @@ function bindTabs(page: HTMLElement): void {
 
 function renderExpenses(tabsHtml: string = ""): void {
   const page = document.getElementById("page-mojafirma")!;
-  const allExpenses = getExpenses(currentMonth);
-  const expenses = filterCategory === "all" ? allExpenses : allExpenses.filter((e) => e.category === filterCategory);
+  const allExpenses = getExpenses(STATE.currentMonth);
+  const expenses = STATE.filterCategory === "all" ? allExpenses : allExpenses.filter((e) => e.category === STATE.filterCategory);
 
   const totalMonth = allExpenses.reduce((s, e) => s + e.amount, 0);
 
@@ -71,21 +94,18 @@ function renderExpenses(tabsHtml: string = ""): void {
   }
 
   // Month nav
-  const [year, month] = currentMonth.split("-").map(Number);
+  const [year, month] = STATE.currentMonth.split("-").map(Number);
   const monthName = new Date(year, month - 1).toLocaleDateString("pl-PL", { year: "numeric", month: "long" });
-
-  const prevMonth = new Date(year, month - 2, 1).toISOString().slice(0, 7);
-  const nextMonthDate = new Date(year, month, 1);
-  const nextMonth = nextMonthDate.toISOString().slice(0, 7);
-  const canNext = nextMonth <= new Date().toISOString().slice(0, 7);
+  const prevMonthStr = toYM(new Date(year, month - 2, 1));
+  const nextMonthStr = toYM(new Date(year, month, 1));
 
   // Category filter pills
   const catPills = `
-    <button class="group-pill${filterCategory === "all" ? " active" : ""}" data-ecat="all">Wszystkie</button>
+    <button class="group-pill${STATE.filterCategory === "all" ? " active" : ""}" data-ecat="all">Wszystkie</button>
     ${Object.entries(EXPENSE_CATEGORIES).map(([key, cfg]) => {
       const count = allExpenses.filter((e) => e.category === key).length;
       if (count === 0) return "";
-      return `<button class="group-pill${filterCategory === key ? " active" : ""}" data-ecat="${key}">
+      return `<button class="group-pill${STATE.filterCategory === key ? " active" : ""}" data-ecat="${key}">
         <i class="${cfg.icon}" style="font-size:10px;color:${cfg.color}"></i> ${cfg.label} (${count})
       </button>`;
     }).join("")}
@@ -95,9 +115,9 @@ function renderExpenses(tabsHtml: string = ""): void {
     <!-- Month nav + summary -->
     <div class="expense-header">
       <div class="expense-month-nav">
-        <button class="btn btn-sm" id="btn-prev-month"><i class="fa-solid fa-chevron-left"></i></button>
+        <button class="btn btn-sm" data-go-month="${prevMonthStr}"><i class="fa-solid fa-chevron-left"></i></button>
         <span class="expense-month-label">${monthName}</span>
-        <button class="btn btn-sm" id="btn-next-month" ${canNext ? "" : "disabled"}><i class="fa-solid fa-chevron-right"></i></button>
+        <button class="btn btn-sm" data-go-month="${nextMonthStr}"><i class="fa-solid fa-chevron-right"></i></button>
       </div>
       <div class="expense-total">
         <span class="expense-total-label">Wydatki w miesiącu:</span>
@@ -130,7 +150,7 @@ function renderExpenses(tabsHtml: string = ""): void {
     ${expenses.length === 0 ? `
       <div class="empty-state" style="padding:40px">
         <div class="empty-state-icon"><i class="fa-solid fa-receipt"></i></div>
-        <h3>Brak wydatków${filterCategory !== "all" ? " w tej kategorii" : ""}</h3>
+        <h3>Brak wydatków${STATE.filterCategory !== "all" ? " w tej kategorii" : ""}</h3>
         <p>Dodaj wydatek żeby śledzić koszty firmy.</p>
       </div>
     ` : `
@@ -172,12 +192,9 @@ function renderExpenses(tabsHtml: string = ""): void {
 
   // Bindings
   bindTabs(page);
-  document.getElementById("btn-prev-month")!.addEventListener("click", () => { currentMonth = prevMonth; renderPage(); });
-  document.getElementById("btn-next-month")!.addEventListener("click", () => { if (canNext) { currentMonth = nextMonth; renderPage(); } });
-
   page.querySelectorAll<HTMLButtonElement>("[data-ecat]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      filterCategory = btn.dataset.ecat as ExpenseCategory | "all";
+      STATE.filterCategory = btn.dataset.ecat as ExpenseCategory | "all";
       renderPage();
     });
   });
@@ -302,7 +319,7 @@ function renderCharts(): void {
   const now = new Date();
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(d.toISOString().slice(0, 7));
+    months.push(toYM(d));
   }
 
   const revData = months.map((m) => revenueByMonth[m] || 0);

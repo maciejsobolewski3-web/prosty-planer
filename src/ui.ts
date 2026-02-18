@@ -8,8 +8,10 @@ export function esc(s: string): string {
 // ─── Modal ───────────────────────────────────────────────────────
 const overlay = () => document.getElementById("modal-overlay")!;
 const box = () => document.getElementById("modal-box")!;
+let _modalLocked = false;
 
-export function openModal(html: string, cssClass?: string): void {
+export function openModal(html: string, cssClass?: string, lock = false): void {
+  _modalLocked = lock;
   const b = box();
   b.className = "modal-box" + (cssClass ? " " + cssClass : "");
   b.innerHTML = html;
@@ -17,13 +19,14 @@ export function openModal(html: string, cssClass?: string): void {
 }
 
 export function closeModal(): void {
+  _modalLocked = false;
   overlay().classList.add("hidden");
   box().innerHTML = "";
 }
 
 export function initModalBackdrop(): void {
   overlay().addEventListener("click", (e) => {
-    if (e.target === overlay()) closeModal();
+    if (e.target === overlay() && !_modalLocked) closeModal();
   });
 }
 

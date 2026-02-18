@@ -9,6 +9,8 @@ import { initDashboard, onDashboardNavigate } from "./dashboard";
 import { initUstawienia } from "./ustawienia";
 import { initMojaFirma } from "./mojafirma";
 import { shouldShowWizard, initWizard } from "./wizard";
+import { initAIAssistant, setAINavigateCallback, toggleAISidebar } from "./ai-assistant";
+import { checkForUpdates } from "./updater";
 
 // ─── State ───────────────────────────────────────────────────────
 let currentPage = "dashboard";
@@ -156,11 +158,11 @@ function initSidebarToggle(): void {
 }
 
 function initThemeToggle(): void {
-  const saved = localStorage.getItem(THEME_KEY) || "dark";
+  const saved = localStorage.getItem(THEME_KEY) || "light";
   applyTheme(saved);
 
   document.getElementById("btn-theme-toggle")!.addEventListener("click", () => {
-    const current = document.documentElement.getAttribute("data-theme") || "dark";
+    const current = document.documentElement.getAttribute("data-theme") || "light";
     const next = current === "dark" ? "light" : "dark";
     applyTheme(next);
     localStorage.setItem(THEME_KEY, next);
@@ -192,6 +194,12 @@ function initKeyboard(): void {
       if (currentPage === "materialy") {
         document.getElementById("btn-add-material")?.click();
       }
+    }
+
+    // Ctrl+/ → toggle AI assistant
+    if ((e.ctrlKey || e.metaKey) && e.key === "/") {
+      e.preventDefault();
+      toggleAISidebar();
     }
   });
 }
@@ -234,6 +242,18 @@ document.addEventListener("DOMContentLoaded", () => {
   renderSidebar();
   navigateTo("dashboard");
 
+  // Init AI assistant
+  initAIAssistant();
+  setAINavigateCallback((page: string, zlecenieId?: number) => {
+    navigateTo(page);
+    if (zlecenieId && page === "zlecenia") {
+      setTimeout(() => {
+        const event = new CustomEvent("open-zlecenie", { detail: zlecenieId });
+        window.dispatchEvent(event);
+      }, 50);
+    }
+  });
+
   // Show wizard on first run
   if (shouldShowWizard()) {
     initWizard(() => {
@@ -241,4 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
       navigateTo("dashboard");
     });
   }
+
+  // Check for updates 3s after startup (silent)
+  setTimeout(() => checkForUpdates(true), 3000);
 });
