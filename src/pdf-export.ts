@@ -1,14 +1,59 @@
 import type { Zlecenie } from "./types";
 import { getCompany, type CompanySettings } from "./store";
 import { formatPrice, brutto } from "./ui";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { open } from "@tauri-apps/plugin-shell";
 
-export function exportPdf(z: Zlecenie): void {
+export async function exportPdf(z: Zlecenie): Promise<void> {
   const company = getCompany();
   const totals = calcTotals(z);
   const hasMarkup = (z.markup_materials || 0) > 0 || (z.markup_labor || 0) > 0;
   const today = new Date().toLocaleDateString("pl-PL", { year: "numeric", month: "long", day: "numeric" });
 
-  const html = `<!DOCTYPE html>
+  const html = buildHtml(z, company, totals, hasMarkup, today);
+
+  // Default filename
+  const safeName = z.name.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g, "").replace(/\s+/g, "_");
+  const defaultName = `Kosztorys_${safeName}_${new Date().toISOString().slice(0, 10)}`;
+
+  try {
+    // Show native "Save As" dialog
+    const filePath = await save({
+      title: "Zapisz kosztorys",
+      defaultPath: `${defaultName}.html`,
+      filters: [
+        { name: "Dokument HTML (otwórz w przeglądarce → Drukuj → Zapisz jako PDF)", extensions: ["html"] },
+      ],
+    });
+
+    if (!filePath) return; // User cancelled
+
+    // Write file
+    await writeTextFile(filePath, html);
+
+    // Open in default browser — user can print to PDF from there
+    await open(filePath);
+
+  } catch (err) {
+    console.error("Export error:", err);
+    // Fallback: open in new window (old behavior)
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "width=800,height=1100");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+}
+
+// ─── HTML Builder ────────────────────────────────────────────────
+function buildHtml(
+  z: Zlecenie,
+  company: CompanySettings,
+  totals: ZlecenieTotals,
+  hasMarkup: boolean,
+  today: string
+): string {
+  return `<!DOCTYPE html>
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -80,12 +125,20 @@ export function exportPdf(z: Zlecenie): void {
   .notes { margin-top: 20px; padding: 10px 14px; background: #f7f8fc; border-radius: 6px; font-size: 9px; color: #555; }
   .notes-label { font-weight: 600; font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 3px; }
 
+  /* Print banner - hide when printing */
+  .print-banner { background: #667eea; color: #fff; padding: 12px 24px; text-align: center; font-size: 13px; margin-bottom: 20px; border-radius: 6px; }
+  .print-banner a { color: #fff; font-weight: 700; text-decoration: underline; cursor: pointer; }
   @media print {
+    .print-banner { display: none; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style>
 </head>
 <body>
+
+<div class="print-banner">
+  📄 Aby zapisać jako PDF: <a onclick="window.print()">Kliknij tutaj</a> lub użyj <strong>Ctrl+P</strong> (Cmd+P na Mac) → "Zapisz jako PDF"
+</div>
 
 <!-- HEADER -->
 <div class="header">
@@ -195,37 +248,8 @@ ${z.notes ? `
 <!-- FOOTER -->
 ${renderFooter(company)}
 
-<script>
-  window.onload = function() {
-    setTimeout(function() { window.print(); }, 300);
-  };
-</script>
 </body>
 </html>`;
-
-  // Open in new window for printing
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, "_blank", "width=800,height=1100");
-
-  // Cleanup after some time
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-
-  if (!win) {
-    // Fallback: use iframe
-    const iframe = document.createElement("iframe");
-    iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm";
-    document.body.appendChild(iframe);
-    iframe.contentDocument!.open();
-    iframe.contentDocument!.write(html);
-    iframe.contentDocument!.close();
-    iframe.onload = () => {
-      setTimeout(() => {
-        iframe.contentWindow!.print();
-        setTimeout(() => document.body.removeChild(iframe), 5000);
-      }, 300);
-    };
-  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

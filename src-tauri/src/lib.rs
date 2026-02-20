@@ -8,6 +8,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // On Linux/Windows dev, register deep link scheme manually
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]

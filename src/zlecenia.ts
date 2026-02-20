@@ -1,5 +1,7 @@
 import type { Zlecenie, ZlecenieItem, ZlecenieStatus } from "./types";
 import { exportPdf } from "./pdf-export";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { openExpenseModal } from "./mojafirma";
 import {
   getZlecenia,
@@ -393,7 +395,7 @@ function renderDetail(zId: number): void {
   // ─── Profitability panel ──────────────────────────────────────
   const linkedExpenses = getExpensesForZlecenie(z.id);
   const totalExpenses = linkedExpenses.reduce((s, e) => s + e.amount, 0);
-  const totalCosts = totals.costMaterials + totals.costLabor + totalExpenses;
+  const totalCosts = totals.costMaterials + totalExpenses;
   const revenueNetto = totals.nettoWithMarkup;
   const profit = revenueNetto - totalCosts;
   const marginPct = revenueNetto > 0 ? (profit / revenueNetto) * 100 : 0;
@@ -415,7 +417,7 @@ function renderDetail(zId: number): void {
           <div class="profit-card-label">Koszty łącznie</div>
           <div class="profit-card-value" style="color:var(--danger)">${hasCosts ? formatPrice(totalCosts) + " zł" : "—"}</div>
           ${hasCosts ? `<div class="profit-card-sub">
-            mat. ${formatPrice(totals.costMaterials)} + rob. ${formatPrice(totals.costLabor)}${totalExpenses > 0 ? ` + wyd. ${formatPrice(totalExpenses)}` : ""}
+            mat. ${formatPrice(totals.costMaterials)}${totalExpenses > 0 ? ` + wyd. ${formatPrice(totalExpenses)}` : ""}
           </div>` : ""}
         </div>
         <div class="profit-card">
@@ -432,18 +434,18 @@ function renderDetail(zId: number): void {
       <!-- Cost breakdown -->
       ${z.items.length > 0 ? `
         <div class="profit-cost-breakdown">
-          <div class="profit-expenses-title">Koszty bazowe z pozycji</div>
+          <div class="profit-expenses-title">Struktura zlecenia</div>
           ${totals.costMaterials > 0 ? `<div class="profit-expense-row">
-            <span class="expense-badge" style="color:var(--accent);background:var(--accent-bg);font-size:10px"><i class="fa-solid fa-boxes-stacked" style="font-size:9px"></i> Materiały</span>
+            <span class="expense-badge" style="color:var(--accent);background:var(--accent-bg);font-size:10px"><i class="fa-solid fa-boxes-stacked" style="font-size:9px"></i> Materiały (koszt)</span>
             <span class="profit-expense-name">${z.items.filter(i => i.type === "material").length} poz.</span>
             <span></span>
             <span class="profit-expense-amount">${formatPrice(totals.costMaterials)} zł</span>
           </div>` : ""}
-          ${totals.costLabor > 0 ? `<div class="profit-expense-row">
-            <span class="expense-badge" style="color:var(--warning);background:var(--warning)18;font-size:10px"><i class="fa-solid fa-helmet-safety" style="font-size:9px"></i> Robocizna</span>
+          ${totals.costLabor > 0 ? `<div class="profit-expense-row" style="color:var(--success)">
+            <span class="expense-badge" style="color:var(--success);background:var(--success)18;font-size:10px"><i class="fa-solid fa-helmet-safety" style="font-size:9px"></i> Robocizna (zarobek)</span>
             <span class="profit-expense-name">${z.items.filter(i => i.type === "labor").length} poz.</span>
             <span></span>
-            <span class="profit-expense-amount">${formatPrice(totals.costLabor)} zł</span>
+            <span class="profit-expense-amount">+${formatPrice(totals.costLabor)} zł</span>
           </div>` : ""}
           ${totals.markupAmount > 0 ? `<div class="profit-expense-row" style="color:var(--success)">
             <span class="expense-badge" style="color:var(--success);background:var(--success)18;font-size:10px"><i class="fa-solid fa-percent" style="font-size:9px"></i> Narzut</span>
@@ -1178,7 +1180,7 @@ function openFromTemplateModal(): void {
 }
 
 // ─── CSV Export ──────────────────────────────────────────────────
-function exportCsv(z: Zlecenie): void {
+async function exportCsv(z: Zlecenie): Promise<void> {
   const totals = calcTotals(z);
   const hasMarkup = (z.markup_materials || 0) > 0 || (z.markup_labor || 0) > 0;
   const sep = ";"; // Excel PL uses semicolons
@@ -1244,18 +1246,20 @@ function exportCsv(z: Zlecenie): void {
   // BOM for Excel to recognize UTF-8
   const bom = "\uFEFF";
   const csv = bom + lines.join("\r\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const safeName = z.name.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g, "_");
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${z.name.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ _-]/g, "_")}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  showToast("CSV wyeksportowany");
+  try {
+    const filePath = await save({
+      title: "Zapisz CSV",
+      defaultPath: `${safeName}.csv`,
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+    if (!filePath) return;
+    await writeTextFile(filePath, csv);
+    showToast("CSV wyeksportowany");
+  } catch (err) {
+    console.error("CSV export error:", err);
+  }
 }
 
 // ─── Totals calculation ──────────────────────────────────────────
