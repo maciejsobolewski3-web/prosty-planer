@@ -48,6 +48,7 @@ const STATUS_CONFIG: Record<ZlecenieStatus, { label: string; color: string; icon
   zaakceptowane: { label: "Zaakceptowane", color: "var(--success)",     icon: "fa-solid fa-check" },
   odrzucone:     { label: "Odrzucone",     color: "var(--danger)",      icon: "fa-solid fa-xmark" },
   realizacja:    { label: "W realizacji",  color: "var(--warning)",     icon: "fa-solid fa-hammer" },
+  zakonczone:    { label: "Zakończone",   color: "var(--success)",     icon: "fa-solid fa-flag-checkered" },
 };
 
 function statusBadge(status: ZlecenieStatus): string {
