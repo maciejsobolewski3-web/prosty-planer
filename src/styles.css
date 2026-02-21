@@ -1328,8 +1328,8 @@ tr:hover .item-note-add { opacity: 0.7; }
 }
 
 .timeline-today::before {
-  content: "dziś"; position: absolute;
-  top: -16px; left: 50%; transform: translateX(-50%);
+  content: "DZIŚ"; position: absolute;
+  top: -28px; left: 50%; transform: translateX(-50%);
   font-size: 9px; color: var(--accent); font-weight: 700;
   white-space: nowrap; font-family: var(--font-mono);
   text-transform: uppercase; letter-spacing: 0.04em;

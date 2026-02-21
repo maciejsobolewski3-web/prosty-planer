@@ -13,6 +13,7 @@ const STATUS_CONFIG: Record<ZlecenieStatus, { label: string; color: string; icon
   zaakceptowane: { label: "Zaakceptowane", color: "#30a46c", icon: "fa-solid fa-check" },
   odrzucone:     { label: "Odrzucone",     color: "#e5484d", icon: "fa-solid fa-xmark" },
   realizacja:    { label: "W realizacji",  color: "#f5a623", icon: "fa-solid fa-hammer" },
+  zakonczone:    { label: "Zakończone",   color: "#30a46c", icon: "fa-solid fa-flag-checkered" },
 };
 
 // ─── Navigate callback (set by main.ts) ──────────────────────────

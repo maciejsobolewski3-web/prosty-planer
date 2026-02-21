@@ -205,8 +205,8 @@ function initKeyboard(): void {
 }
 
 // ─── Init ────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
-  initStore();
+document.addEventListener("DOMContentLoaded", async () => {
+  await initStore();
   initModalBackdrop();
   initSearch();
   initKeyboard();
