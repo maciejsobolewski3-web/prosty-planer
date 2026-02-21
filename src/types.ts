@@ -67,7 +67,7 @@ export interface ZlecenieItem {
   notes: string;
 }
 
-export type ZlecenieStatus = "wycena" | "wyslane" | "zaakceptowane" | "odrzucone" | "realizacja";
+export type ZlecenieStatus = "wycena" | "wyslane" | "zaakceptowane" | "odrzucone" | "realizacja" | "zakonczone";
 
 // ─── Expenses ────────────────────────────────────────────────────
 export type ExpenseCategory = "materialy" | "narzedzia" | "paliwo" | "podwykonawcy" | "biuro" | "inne";
