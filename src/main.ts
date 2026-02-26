@@ -946,22 +946,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Check for updates 3s after startup (silent)
   setTimeout(() => checkForUpdates(true), 3000);
 
-  // Offline indicator
-  const offlineEl = document.createElement("div");
-  offlineEl.className = "offline-indicator hidden";
-  offlineEl.innerHTML = '<i class="fa-solid fa-wifi" style="font-size:10px"></i> Backend AI niedostępny';
-  document.body.appendChild(offlineEl);
-
-  async function checkBackendStatus() {
-    try {
-      const resp = await fetch("http://localhost:8000/health", { signal: AbortSignal.timeout(3000) });
-      offlineEl.classList.toggle("hidden", resp.ok);
-    } catch {
-      offlineEl.classList.remove("hidden");
-    }
-  }
-  checkBackendStatus();
-  setInterval(checkBackendStatus, 30000);
+  // Offline indicator — disabled for now (no backend required)
+  // To re-enable: set BACKEND_URL to your planer_ai.py address (e.g. http://localhost:8000)
+  // const BACKEND_URL = "";
+  // if (BACKEND_URL) {
+  //   const offlineEl = document.createElement("div");
+  //   offlineEl.className = "offline-indicator hidden";
+  //   offlineEl.innerHTML = '<i class="fa-solid fa-wifi" style="font-size:10px"></i> Backend AI niedostępny';
+  //   document.body.appendChild(offlineEl);
+  //   async function checkBackendStatus() {
+  //     try {
+  //       const resp = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(3000) });
+  //       offlineEl.classList.toggle("hidden", resp.ok);
+  //     } catch { offlineEl.classList.remove("hidden"); }
+  //   }
+  //   checkBackendStatus();
+  //   setInterval(checkBackendStatus, 30000);
+  // }
 
   // Onboarding
   const ONBOARD_KEY = "pp_onboard_done";
