@@ -208,6 +208,7 @@ function renderTable(items: Labor[]): string {
         <td>
           <div class="row-actions">
             <button class="btn-icon" title="Edytuj" data-ledit="${l.id}"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn-icon" title="Duplikuj" data-lclone="${l.id}"><i class="fa-solid fa-copy"></i></button>
             <button class="btn-icon" title="Archiwizuj" data-larchive="${l.id}"><i class="fa-solid fa-box-archive"></i></button>
             <button class="btn-icon" title="Usuń" data-ldelete="${l.id}" style="color:var(--danger)"><i class="fa-solid fa-trash"></i></button>
           </div>
@@ -217,19 +218,21 @@ function renderTable(items: Labor[]): string {
   }
 
   return `
-    <table class="data-table">
-      <thead><tr>
-        <th style="width:30px"></th>
-        <th>Nazwa usługi</th>
-        <th>Jedn.</th>
-        <th>Netto</th>
-        <th>Brutto</th>
-        <th>Kategoria</th>
-        <th>Notatki</th>
-        <th style="width:100px"></th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead><tr>
+          <th style="width:30px"></th>
+          <th>Nazwa usługi</th>
+          <th>Jedn.</th>
+          <th>Netto</th>
+          <th>Brutto</th>
+          <th>Kategoria</th>
+          <th>Notatki</th>
+          <th style="width:100px"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -257,6 +260,25 @@ function bindTableEvents(page: HTMLElement): void {
       e.stopPropagation();
       archiveLabor(parseInt(btn.dataset.larchive!));
       showToast("Robocizna zarchiwizowana");
+      render();
+    });
+  });
+
+  // Clone
+  page.querySelectorAll<HTMLButtonElement>("[data-lclone]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const item = getLabor({ show_archived: true }).find((l) => l.id === parseInt(btn.dataset.lclone!));
+      if (!item) return;
+      addLabor({
+        name: item.name + " (kopia)",
+        unit: item.unit,
+        price_netto: item.price_netto,
+        vat_rate: item.vat_rate,
+        category: item.category,
+        notes: item.notes,
+      });
+      showToast("Robocizna zduplikowana");
       render();
     });
   });

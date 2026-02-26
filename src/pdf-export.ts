@@ -5,6 +5,14 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { open } from "@tauri-apps/plugin-shell";
 
+export function getPreviewHtml(z: Zlecenie): string {
+  const company = getCompany();
+  const totals = calcTotals(z);
+  const hasMarkup = (z.markup_materials || 0) > 0 || (z.markup_labor || 0) > 0;
+  const today = new Date().toLocaleDateString("pl-PL", { year: "numeric", month: "long", day: "numeric" });
+  return buildHtml(z, company, totals, hasMarkup, today);
+}
+
 export async function exportPdf(z: Zlecenie): Promise<void> {
   const company = getCompany();
   const totals = calcTotals(z);

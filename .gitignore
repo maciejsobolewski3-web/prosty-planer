@@ -1,5 +1,12 @@
 node_modules/
 dist/
+dist-new/
 src-tauri/target/
 *.zip
 .DS_Store
+banery/
+banery-planer-*.html
+landing.html
+planer.html
+planer_ai.py
+split-banners.py

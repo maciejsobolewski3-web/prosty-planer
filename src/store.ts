@@ -1,4 +1,4 @@
-import type { Category, Material, PriceHistoryEntry, Labor, Zlecenie, ZlecenieItem, ZlecenieStatus, Expense, ExpenseCategory } from "./types";
+import type { Category, Material, PriceHistoryEntry, Labor, Zlecenie, ZlecenieItem, ZlecenieStatus, Expense, ExpenseCategory, Product, Offer, AppMode, Client, ProductPriceHistoryEntry, CommentEntry } from "./types";
 import { writeTextFile, readTextFile, exists, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
@@ -26,6 +26,14 @@ interface Database {
   templates: ZlecenieTemplate[];
   company: CompanySettings;
   expenses: Expense[];
+  clients: Client[];
+  // Trade mode
+  products: Product[];
+  offers: Offer[];
+  offer_templates: any[];
+  product_price_history: ProductPriceHistoryEntry[];
+  app_mode: AppMode;
+  global_notes: string;
 }
 
 const DEFAULT_COMPANY: CompanySettings = {
@@ -44,11 +52,38 @@ let db: Database = {
   templates: [],
   company: { ...DEFAULT_COMPANY },
   expenses: [],
+  clients: [],
+  products: [],
+  offers: [],
+  offer_templates: [],
+  product_price_history: [],
+  app_mode: "uslugowy",
+  global_notes: "",
 };
 
 let dataFilePath = "";
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 let initialized = false;
+
+// ─── Undo stack ──────────────────────────────────────────────────
+interface UndoEntry { label: string; undo: () => void; }
+const undoStack: UndoEntry[] = [];
+const MAX_UNDO = 20;
+
+export function pushUndo(label: string, undoFn: () => void): void {
+  undoStack.push({ label, undo: undoFn });
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+}
+
+export function popUndo(): string | null {
+  const entry = undoStack.pop();
+  if (!entry) return null;
+  entry.undo();
+  scheduleSave();
+  return entry.label;
+}
+
+export function hasUndo(): boolean { return undoStack.length > 0; }
 
 // ─── File I/O ───────────────────────────────────────────────────
 async function getDataPath(): Promise<string> {
@@ -133,6 +168,13 @@ function migrateFromLocalStorage(): Database | null {
     templates: loadLS<ZlecenieTemplate>(TEMPLATES_KEY),
     company,
     expenses: loadLS<Expense>(EXPENSES_KEY),
+    clients: [],
+    products: [],
+    offers: [],
+    offer_templates: [],
+    product_price_history: [],
+    app_mode: "uslugowy",
+    global_notes: "",
   };
 
   // Mark migration done — keep localStorage intact as backup
@@ -400,6 +442,10 @@ export function getPriceHistory(materialId: number): PriceHistoryEntry[] {
     .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime());
 }
 
+export function getAllPriceHistory(): PriceHistoryEntry[] {
+  return [...db.price_history];
+}
+
 // ─── Labor (Robocizny) ──────────────────────────────────────────
 export interface LaborFilter {
   search?: string;
@@ -520,6 +566,7 @@ export interface ZlecenieInput {
   markup_labor: number;
   date_start: string;
   date_end: string;
+  tags?: string[];
 }
 
 export function addZlecenie(input: ZlecenieInput): Zlecenie {
@@ -553,8 +600,16 @@ export function updateZlecenie(id: number, input: ZlecenieInput): void {
 }
 
 export function deleteZlecenie(id: number): void {
+  const zlecenie = db.zlecenia.find((z) => z.id === id);
   db.zlecenia = db.zlecenia.filter((z) => z.id !== id);
   scheduleSave();
+
+  // Push undo
+  if (zlecenie) {
+    pushUndo("Usunięto zlecenie", () => {
+      db.zlecenia.push(zlecenie);
+    });
+  }
 }
 
 export function duplicateZlecenie(id: number): Zlecenie | null {
@@ -613,9 +668,18 @@ export function updateZlecenieItem(zlecenieId: number, itemId: number, updates: 
 export function removeZlecenieItem(zlecenieId: number, itemId: number): void {
   const z = db.zlecenia.find((x) => x.id === zlecenieId);
   if (!z) return;
+  const item = z.items.find((i) => i.id === itemId);
   z.items = z.items.filter((i) => i.id !== itemId);
   z.updated_at = new Date().toISOString();
   scheduleSave();
+
+  // Push undo
+  if (item) {
+    pushUndo("Usunięto pozycję", () => {
+      const zlecenie = db.zlecenia.find((x) => x.id === zlecenieId);
+      if (zlecenie) zlecenie.items.push(item);
+    });
+  }
 }
 
 export function reorderZlecenieItems(zlecenieId: number, orderedItemIds: number[]): void {
@@ -741,6 +805,31 @@ export function deleteTemplate(id: number): void {
   scheduleSave();
 }
 
+// ─── Zlecenie Comments ──────────────────────────────────────────
+export function addZlecenieComment(zlecenieId: number, text: string): CommentEntry | null {
+  const z = db.zlecenia.find((x) => x.id === zlecenieId);
+  if (!z) return null;
+  if (!z.comments) z.comments = [];
+
+  const comment: CommentEntry = {
+    id: nextId(),
+    text,
+    created_at: new Date().toISOString(),
+  };
+  z.comments.push(comment);
+  z.updated_at = new Date().toISOString();
+  scheduleSave();
+  return comment;
+}
+
+export function deleteZlecenieComment(zlecenieId: number, commentId: number): void {
+  const z = db.zlecenia.find((x) => x.id === zlecenieId);
+  if (!z || !z.comments) return;
+  z.comments = z.comments.filter((c) => c.id !== commentId);
+  z.updated_at = new Date().toISOString();
+  scheduleSave();
+}
+
 // ─── Company Settings ───────────────────────────────────────────
 export interface CompanySettings {
   name: string;
@@ -862,6 +951,13 @@ export async function initStore(): Promise<void> {
   // 1. Try loading from JSON file
   const fileData = await loadFromFile();
   if (fileData) {
+    // Patch: ensure new trade mode fields exist on older databases
+    if (!fileData.products) fileData.products = [];
+    if (!fileData.offers) fileData.offers = [];
+    if (!fileData.offer_templates) fileData.offer_templates = [];
+    if (!fileData.clients) fileData.clients = [];
+    if (!fileData.app_mode) fileData.app_mode = "uslugowy";
+    if (!fileData.global_notes) fileData.global_notes = "";
     db = fileData;
     initialized = true;
     console.log("Data loaded from JSON file");
@@ -887,3 +983,110 @@ export async function initStore(): Promise<void> {
   await saveToFile();
   console.log("Fresh install — seeded defaults");
 }
+
+// ─── Clients (Baza klientów) ────────────────────────────────────
+export interface ClientInput {
+  name: string;
+  nip: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  contact_person: string;
+  notes: string;
+}
+
+export function getClients(search?: string): Client[] {
+  let list = [...db.clients];
+  if (search) {
+    const s = search.toLowerCase();
+    list = list.filter(
+      (c) =>
+        c.name.toLowerCase().includes(s) ||
+        c.nip.includes(s) ||
+        c.city.toLowerCase().includes(s) ||
+        c.contact_person.toLowerCase().includes(s) ||
+        c.email.toLowerCase().includes(s)
+    );
+  }
+  return list.sort((a, b) => a.name.localeCompare(b.name, "pl"));
+}
+
+export function getClientById(id: number): Client | undefined {
+  return db.clients.find((c) => c.id === id);
+}
+
+export function getClientByName(name: string): Client | undefined {
+  const lower = name.toLowerCase().trim();
+  return db.clients.find((c) => c.name.toLowerCase().trim() === lower);
+}
+
+export function addClient(input: ClientInput): Client {
+  const now = new Date().toISOString();
+  const client: Client = {
+    id: nextId(),
+    ...input,
+    created_at: now,
+    updated_at: now,
+  };
+  db.clients.push(client);
+  scheduleSave();
+  return client;
+}
+
+export function updateClient(id: number, input: ClientInput): void {
+  const client = db.clients.find((c) => c.id === id);
+  if (!client) return;
+  Object.assign(client, input, { updated_at: new Date().toISOString() });
+  scheduleSave();
+}
+
+export function deleteClient(id: number): void {
+  db.clients = db.clients.filter((c) => c.id !== id);
+  scheduleSave();
+}
+
+export function getUniqueClientNames(): string[] {
+  const names = new Set<string>();
+  // From clients DB
+  for (const c of db.clients) names.add(c.name);
+  // Also from zlecenia/offers that may have client names not yet in DB
+  for (const z of db.zlecenia) if (z.client) names.add(z.client);
+  for (const o of db.offers) if (o.client) names.add(o.client);
+  return [...names].sort((a, b) => a.localeCompare(b, "pl"));
+}
+
+// ─── Global Notes ──────────────────────────────────────────────
+export function getGlobalNotes(): string {
+  return db.global_notes;
+}
+
+export function saveGlobalNotes(text: string): void {
+  db.global_notes = text;
+  scheduleSave();
+}
+
+// ─── Backup Export/Import ──────────────────────────────────────
+export function exportDatabase(): string {
+  return JSON.stringify({
+    _meta: { app: "ProstyPlaner", version: "2.0", exported_at: new Date().toISOString() },
+    data: db,
+  }, null, 2);
+}
+
+export async function importDatabase(json: string): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(json);
+    if (parsed._meta?.app !== "ProstyPlaner") return false;
+    const data = parsed.data || parsed;
+    // Merge into db
+    Object.assign(db, data);
+    await saveToFile();
+    return true;
+  } catch { return false; }
+}
+
+// ─── Internal accessors for store-trade.ts ─────────────────────
+export function _getDb(): Database { return db; }
+export function _nextId(): number { return nextId(); }
+export function _scheduleSave(): void { scheduleSave(); }

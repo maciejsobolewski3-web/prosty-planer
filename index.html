@@ -12,6 +12,11 @@
   <script>try{const t=localStorage.getItem('pp_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 </head>
 <body>
+  <div id="splash-screen" class="splash-screen">
+    <img src="/logo.png" alt="Prosty Planer" class="splash-logo" />
+    <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+  </div>
+
   <div class="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -38,6 +43,10 @@
         <button class="sidebar-nav-item" data-page="zlecenia">
           <i class="fa-solid fa-file-invoice-dollar"></i>
           Zlecenia
+        </button>
+        <button class="sidebar-nav-item" data-page="klienci">
+          <i class="fa-solid fa-address-book"></i>
+          Klienci
         </button>
         <button class="sidebar-nav-item" data-page="mojafirma">
           <i class="fa-solid fa-briefcase"></i>
@@ -67,6 +76,7 @@
       <!-- Topbar -->
       <header class="topbar">
         <h1 class="topbar-title" id="topbar-title">Materiały</h1>
+        <div id="topbar-breadcrumb" class="topbar-breadcrumb"></div>
         <div class="topbar-search">
           <i class="fa-solid fa-magnifying-glass"></i>
           <input type="text" id="global-search" placeholder="Szukaj materiałów... (Ctrl+K)" />
@@ -83,6 +93,9 @@
         <div id="page-mojafirma" class="page hidden"></div>
         <div id="page-kategorie" class="page hidden"></div>
         <div id="page-ustawienia" class="page hidden"></div>
+        <div id="page-klienci" class="page hidden"></div>
+        <div id="page-products" class="page hidden"></div>
+        <div id="page-offers" class="page hidden"></div>
       </div>
     </div>
   </div>

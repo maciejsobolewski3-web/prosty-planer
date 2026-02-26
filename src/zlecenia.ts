@@ -1,5 +1,7 @@
 import type { Zlecenie, ZlecenieItem, ZlecenieStatus } from "./types";
-import { exportPdf } from "./pdf-export";
+import { setAIViewContext } from "./ai-assistant";
+import { showContextAIToggle, hideContextAIToggle } from "./ai-sidebar";
+import { exportPdf, getPreviewHtml } from "./pdf-export";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { openExpenseModal } from "./mojafirma";
@@ -28,6 +30,8 @@ import {
   saveAsTemplate,
   createFromTemplate,
   deleteTemplate,
+  addZlecenieComment,
+  deleteZlecenieComment,
   type ZlecenieInput,
   type MaterialInput,
   type LaborInput,
@@ -39,7 +43,11 @@ import {
   showToast,
   formatPrice,
   brutto,
+  renderTagBadges,
+  renderTagPicker,
+  getSelectedTags,
 } from "./ui";
+import { renderClientPicker, quickAddClientFromName } from "./klienci";
 
 // ─── Status config ───────────────────────────────────────────────
 const STATUS_CONFIG: Record<ZlecenieStatus, { label: string; color: string; icon: string }> = {
@@ -59,6 +67,8 @@ function statusBadge(status: ZlecenieStatus): string {
 // ─── State ───────────────────────────────────────────────────────
 let activeZlecenieId: number | null = null;
 let filterStatus: ZlecenieStatus | "all" = "all";
+let filterClient: string = "";
+let viewMode: "list" | "kanban" = "list";
 
 export function initZlecenia(): void {
   activeZlecenieId = null;
@@ -82,11 +92,17 @@ function render(): void {
 // ═══════════════════════════════════════════════════════════════════
 function renderList(): void {
   const page = document.getElementById("page-zlecenia")!;
+  setAIViewContext({ entity_type: null, entity_id: null });
+  hideContextAIToggle();
   const allZlecenia = getZlecenia();
-  const zlecenia = filterStatus === "all" ? allZlecenia : allZlecenia.filter((z) => (z.status || "wycena") === filterStatus);
+  let zlecenia = filterStatus === "all" ? allZlecenia : allZlecenia.filter((z) => (z.status || "wycena") === filterStatus);
+  if (filterClient) zlecenia = zlecenia.filter((z) => z.client === filterClient);
 
   document.getElementById("topbar-title")!.textContent = "Zlecenia";
   document.getElementById("topbar-actions")!.innerHTML = `
+    <button class="btn btn-sm" id="btn-kanban-toggle" title="Widok kanban">
+      <i class="fa-solid fa-${viewMode === 'kanban' ? 'list' : 'columns'}"></i>
+    </button>
     <button class="btn" id="btn-from-template">
       <i class="fa-solid fa-bookmark"></i> Z szablonu
     </button>
@@ -94,6 +110,10 @@ function renderList(): void {
       <i class="fa-solid fa-plus"></i> Nowe zlecenie
     </button>
   `;
+  document.getElementById("btn-kanban-toggle")!.addEventListener("click", () => {
+    viewMode = viewMode === 'list' ? 'kanban' : 'list';
+    renderList();
+  });
   document.getElementById("btn-add-zlecenie")!.addEventListener("click", () => openZlecenieModal());
   document.getElementById("btn-from-template")!.addEventListener("click", () => openFromTemplateModal());
 
@@ -112,6 +132,12 @@ function renderList(): void {
       </div>
     `;
     page.querySelector("#btn-empty-add-zlecenie")!.addEventListener("click", () => openZlecenieModal());
+    return;
+  }
+
+  if (viewMode === "kanban") {
+    page.innerHTML = statusFilters + renderKanban(zlecenia);
+    bindKanbanEvents();
     return;
   }
 
@@ -146,6 +172,7 @@ function renderList(): void {
           <span class="zlecenie-card-total-label">Razem brutto${hasMarkup ? " (z narzutem)" : ""}:</span>
           <span class="zlecenie-card-total-value">${formatPrice(totals.bruttoWithMarkup)} zł</span>
         </div>
+        ${z.tags && z.tags.length > 0 ? `<div style="margin-top:8px">${renderTagBadges(z.tags)}</div>` : ""}
       </div>
     `;
   }).join("")}</div>`;
@@ -210,6 +237,12 @@ function renderList(): void {
       render();
     });
   });
+
+  // Client filter binding
+  page.querySelector<HTMLSelectElement>("#filter-client-z")?.addEventListener("change", (e) => {
+    filterClient = (e.target as HTMLSelectElement).value;
+    render();
+  });
 }
 
 // ─── Status filters ──────────────────────────────────────────────
@@ -220,7 +253,9 @@ function renderStatusFilters(allZlecenia: Zlecenie[]): string {
     counts[s] = (counts[s] || 0) + 1;
   }
 
-  let html = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">`;
+  const uniqueClients = [...new Set(allZlecenia.map(z => z.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pl"));
+
+  let html = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">`;
   html += `<button class="group-pill${filterStatus === "all" ? " active" : ""}" data-status-filter="all">Wszystkie (${counts.all})</button>`;
 
   for (const [key, cfg] of Object.entries(STATUS_CONFIG)) {
@@ -231,25 +266,118 @@ function renderStatusFilters(allZlecenia: Zlecenie[]): string {
     }
   }
 
+  html += `<select id="filter-client-z" style="margin-left:auto;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text-primary);font-size:12px">
+    <option value="">Wszyscy klienci</option>
+    ${uniqueClients.map(c => `<option value="${esc(c)}" ${filterClient === c ? 'selected' : ''}>${esc(c)}</option>`).join("")}
+  </select>`;
+
   html += `</div>`;
   return html;
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // DETAIL VIEW
+// ─── Kanban View ─────────────────────────────────────────────────
+function renderKanban(zleceniaToRender: Zlecenie[]): string {
+  let html = '<div class="kanban-board">';
+  for (const [status, cfg] of Object.entries(STATUS_CONFIG)) {
+    const items = zleceniaToRender.filter(z => (z.status || "wycena") === status);
+    html += `<div class="kanban-column" data-kanban-status="${status}">
+      <div class="kanban-column-header" style="border-top:3px solid ${cfg.color}">
+        <i class="${cfg.icon}" style="color:${cfg.color};font-size:11px"></i>
+        <span>${cfg.label}</span>
+        <span class="kanban-count">${items.length}</span>
+      </div>
+      <div class="kanban-column-body" data-kanban-drop="${status}">
+        ${items.map(z => {
+          const totals = calcTotals(z);
+          return `<div class="kanban-card" draggable="true" data-kanban-zid="${z.id}">
+            <div class="kanban-card-name">${esc(z.name)}</div>
+            ${z.client ? `<div class="kanban-card-client">${esc(z.client)}</div>` : ""}
+            <div class="kanban-card-total">${formatPrice(totals.bruttoWithMarkup)} zł</div>
+            ${z.tags && z.tags.length > 0 ? `<div style="margin-top:4px">${renderTagBadges(z.tags)}</div>` : ""}
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function bindKanbanEvents(): void {
+  const page = document.getElementById("page-zlecenia")!;
+  let draggedCard: HTMLElement | null = null;
+
+  // Cards click to open detail
+  page.querySelectorAll<HTMLElement>(".kanban-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      activeZlecenieId = parseInt(card.dataset.kanbanZid!);
+      render();
+    });
+  });
+
+  // Drag and drop
+  page.querySelectorAll<HTMLElement>(".kanban-card").forEach((card) => {
+    card.addEventListener("dragstart", () => {
+      draggedCard = card;
+      card.classList.add("dragging");
+    });
+
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+      draggedCard = null;
+      page.querySelectorAll(".kanban-column-body").forEach(col => {
+        col.classList.remove("drag-over");
+      });
+    });
+  });
+
+  page.querySelectorAll<HTMLElement>(".kanban-column-body").forEach((col) => {
+    col.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      col.classList.add("drag-over");
+    });
+
+    col.addEventListener("dragleave", () => {
+      col.classList.remove("drag-over");
+    });
+
+    col.addEventListener("drop", (e) => {
+      e.preventDefault();
+      col.classList.remove("drag-over");
+      if (draggedCard) {
+        const zid = parseInt(draggedCard.dataset.kanbanZid!);
+        const newStatus = col.dataset.kanbanDrop as ZlecenieStatus;
+        setZlecenieStatus(zid, newStatus);
+        showToast(`Status zmieniony na ${STATUS_CONFIG[newStatus].label}`);
+        render();
+      }
+    });
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════
 function renderDetail(zId: number): void {
   const page = document.getElementById("page-zlecenia")!;
+  page.scrollTo(0, 0);
   const z = getZlecenieById(zId);
 
   if (!z) { activeZlecenieId = null; renderList(); return; }
+
+  // Set AI context to this zlecenie
+  setAIViewContext({ entity_type: "zlecenie", entity_id: zId });
+  showContextAIToggle({ entity_type: "zlecenie", entity_id: zId }, () => renderDetail(zId));
 
   document.getElementById("topbar-title")!.textContent = z.name;
   document.getElementById("topbar-actions")!.innerHTML = `
     <button class="btn" id="btn-back-list"><i class="fa-solid fa-arrow-left"></i> Lista</button>
     <button class="btn" id="btn-refresh-prices" title="Zaktualizuj ceny z bazy danych"><i class="fa-solid fa-rotate"></i> Aktualizuj ceny</button>
+    <button class="btn" id="btn-duplicate-zlecenie" title="Duplikuj zlecenie"><i class="fa-solid fa-copy"></i> Duplikuj</button>
     <button class="btn" id="btn-export-pdf"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+    <button class="btn" id="btn-preview-pdf" title="Podgląd PDF"><i class="fa-solid fa-eye"></i> Podgląd</button>
     <button class="btn" id="btn-export-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>
+    <button class="btn" id="btn-export-xlsx"><i class="fa-solid fa-file-excel"></i> Eksport XLSX</button>
     <button class="btn" id="btn-save-template"><i class="fa-solid fa-bookmark"></i> Szablon</button>
     <button class="btn" id="btn-edit-zlecenie"><i class="fa-solid fa-gear"></i> Ustawienia</button>
     <button class="btn" id="btn-add-dojazd"><i class="fa-solid fa-car"></i> Dojazd</button>
@@ -257,8 +385,30 @@ function renderDetail(zId: number): void {
   `;
   document.getElementById("btn-back-list")!.addEventListener("click", () => { activeZlecenieId = null; render(); });
   document.getElementById("btn-refresh-prices")!.addEventListener("click", () => refreshPrices(z.id));
+  document.getElementById("btn-duplicate-zlecenie")!.addEventListener("click", () => {
+    const newZ = duplicateZlecenie(z.id);
+    if (newZ) {
+      showToast("Zlecenie zduplikowane!");
+      activeZlecenieId = newZ.id;
+      render();
+    }
+  });
   document.getElementById("btn-export-pdf")!.addEventListener("click", () => exportPdf(z));
+  document.getElementById("btn-preview-pdf")!.addEventListener("click", () => {
+    const html = getPreviewHtml(z);
+    openModal(`
+      <div style="padding:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0;font-size:14px">Podgląd kosztorysu</h3>
+          <button class="btn btn-sm" id="btn-close-preview">Zamknij</button>
+        </div>
+        <iframe srcdoc="${html.replace(/"/g, '&quot;')}" style="width:100%;height:70vh;border:1px solid var(--border);border-radius:0px;background:white"></iframe>
+      </div>
+    `, "modal-lg");
+    document.getElementById("btn-close-preview")?.addEventListener("click", closeModal);
+  });
   document.getElementById("btn-export-csv")!.addEventListener("click", () => exportCsv(z));
+  document.getElementById("btn-export-xlsx")!.addEventListener("click", () => exportZlecenieToXLSX(z));
   document.getElementById("btn-save-template")!.addEventListener("click", () => openSaveTemplateModal(z.id));
   document.getElementById("btn-edit-zlecenie")!.addEventListener("click", () => openZlecenieModal(z));
   document.getElementById("btn-add-dojazd")!.addEventListener("click", () => openDojazdModal(z.id));
@@ -318,6 +468,7 @@ function renderDetail(zId: number): void {
         : `<div class="item-note-add" data-note-item="${item.id}" title="Dodaj notatkę"><i class="fa-solid fa-plus" style="font-size:8px"></i> notatka</div>`;
 
       return `<tr data-item-id="${item.id}" draggable="true">
+        <td><input type="checkbox" class="bulk-check" data-item-id="${item.id}" /></td>
         <td class="drag-handle" title="Przeciągnij"><i class="fa-solid fa-grip-vertical"></i></td>
         <td class="cell-lp">${idx + 1}.</td>
         <td>${typeIcon}</td>
@@ -341,6 +492,7 @@ function renderDetail(zId: number): void {
         </td>
         <td>
           <div class="row-actions" style="opacity:1">
+            <button class="btn-icon" title="Duplikuj" data-dup-item="${item.id}"><i class="fa-solid fa-copy"></i></button>
             <button class="btn-icon" title="Usuń" data-remove-item="${item.id}" style="color:var(--danger)"><i class="fa-solid fa-xmark"></i></button>
           </div>
         </td>
@@ -351,8 +503,15 @@ function renderDetail(zId: number): void {
     const showMarkupDiff = hasMarkup;
 
     itemsHtml = `
+      <div id="bulk-toolbar-z" class="bulk-toolbar hidden">
+        <span id="bulk-count-z">Zaznaczono: 0</span>
+        <button class="btn btn-danger btn-sm" id="btn-bulk-delete-z">
+          <i class="fa-solid fa-trash"></i> Usuń zaznaczone
+        </button>
+      </div>
       <table class="data-table">
         <thead><tr>
+          <th style="width:30px"><input type="checkbox" id="bulk-check-all-z" /></th>
           <th style="width:20px"></th>
           <th style="width:30px">Lp.</th>
           <th style="width:28px"></th>
@@ -366,6 +525,10 @@ function renderDetail(zId: number): void {
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      <div id="selected-items-sum" class="selected-sum-bar" style="display:none">
+        <span id="selected-count">0 zaznaczonych</span>
+        <span id="selected-total" style="font-weight:700">0,00 zł netto</span>
+      </div>
       <div class="zlecenie-totals">
         ${showMarkupDiff ? `
           <div class="zlecenie-totals-row">
@@ -482,7 +645,54 @@ function renderDetail(zId: number): void {
     </div>
   `;
 
-  page.innerHTML = infoHtml + itemsHtml + profitHtml;
+  // ─── Comments section ──────────────────────────────────────────
+  const comments = z.comments || [];
+  const commentsHtml = `
+    <div class="dash-section" style="margin-top:20px">
+      <div class="dash-section-title"><i class="fa-solid fa-comments" style="font-size:12px;margin-right:4px"></i> Notatki i komentarze (${comments.length})</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input type="text" id="comment-input-z" placeholder="Dodaj notatkę..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text-primary);font-size:13px" />
+        <button class="btn btn-primary btn-sm" id="btn-add-comment-z"><i class="fa-solid fa-plus"></i></button>
+      </div>
+      ${comments.length === 0 ? '<div class="cell-muted" style="padding:8px;font-size:12px">Brak notatek. Dodaj pierwszą notatkę powyżej.</div>' :
+        `<div class="dash-recent-list">${comments.map((c) => {
+          const dateStr = new Date(c.created_at).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+          return `<div class="dash-recent-item" style="align-items:flex-start">
+            <div class="dash-recent-info" style="flex:1">
+              <div style="font-size:13px">${esc(c.text)}</div>
+              <div class="cell-muted" style="font-size:10px">${dateStr}</div>
+            </div>
+            <button class="btn-icon" data-del-comment-z="${c.id}" style="color:var(--danger);font-size:11px" title="Usuń"><i class="fa-solid fa-xmark"></i></button>
+          </div>`;
+        }).join("")}</div>`}
+    </div>
+  `;
+
+  page.innerHTML = infoHtml + itemsHtml + profitHtml + commentsHtml;
+
+  // ─── Comment events ───────────────────────────────────────────
+  const commentInput = document.getElementById("comment-input-z") as HTMLInputElement;
+  document.getElementById("btn-add-comment-z")?.addEventListener("click", () => {
+    const text = commentInput?.value.trim();
+    if (!text) return;
+    addZlecenieComment(z.id, text);
+    renderDetail(z.id);
+  });
+  commentInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const text = commentInput.value.trim();
+      if (!text) return;
+      addZlecenieComment(z.id, text);
+      renderDetail(z.id);
+    }
+  });
+  page.querySelectorAll<HTMLButtonElement>("[data-del-comment-z]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      deleteZlecenieComment(z.id, parseInt(btn.dataset.delCommentZ!));
+      renderDetail(z.id);
+    });
+  });
 
   // Quick expense from profitability panel
   page.querySelector("#btn-quick-expense")?.addEventListener("click", () => {
@@ -501,6 +711,26 @@ function renderDetail(zId: number): void {
   page.querySelectorAll<HTMLInputElement>("[data-price-item]").forEach((input) => {
     input.addEventListener("change", () => {
       updateZlecenieItem(z.id, parseInt(input.dataset.priceItem!), { price_netto: parseFloat(input.value) || 0 });
+      renderDetail(z.id);
+    });
+  });
+
+  page.querySelectorAll<HTMLButtonElement>("[data-dup-item]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const itemId = parseInt(btn.dataset.dupItem!);
+      const item = z.items.find((i) => i.id === itemId);
+      if (!item) return;
+      addZlecenieItem(z.id, {
+        type: item.type,
+        source_id: item.source_id,
+        name: item.name,
+        unit: item.unit,
+        quantity: item.quantity,
+        price_netto: item.price_netto,
+        vat_rate: item.vat_rate,
+        notes: item.notes,
+      });
+      showToast("Pozycja zduplikowana");
       renderDetail(z.id);
     });
   });
@@ -543,6 +773,18 @@ function renderDetail(zId: number): void {
     });
   });
 
+  // Select all checkbox for selected items sum (reuse existing bulk-check-all-z)
+  const selectAllCheckbox = document.getElementById("bulk-check-all-z") as HTMLInputElement;
+  const originalSelectAllListener = selectAllCheckbox?.onchange;
+  selectAllCheckbox?.addEventListener("change", (e) => {
+    updateSelectedSum(z);
+  });
+
+  // Individual checkboxes for selected items (reuse existing bulk-check)
+  document.querySelectorAll<HTMLInputElement>(".bulk-check").forEach(cb => {
+    cb.addEventListener("change", () => updateSelectedSum(z));
+  });
+
   // Status change
   const statusSelect = page.querySelector<HTMLSelectElement>("#status-select");
   if (statusSelect) {
@@ -556,6 +798,9 @@ function renderDetail(zId: number): void {
 
   // Drag & drop reorder
   initDragDrop(page, z.id);
+
+  // Bulk select
+  initZlecenieBulkSelect(page, z.id);
 }
 
 // ─── Refresh prices from DB ──────────────────────────────────────
@@ -567,6 +812,31 @@ function refreshPrices(zlecenieId: number): void {
   } else {
     showToast("Wszystkie ceny aktualne");
   }
+}
+
+// ─── Update selected items sum ──────────────────────────────────
+function updateSelectedSum(z: Zlecenie): void {
+  const checked = document.querySelectorAll<HTMLInputElement>(".bulk-check:checked");
+  const bar = document.getElementById("selected-items-sum")!;
+  if (checked.length === 0) {
+    bar.style.display = "none";
+    return;
+  }
+  bar.style.display = "flex";
+  let totalNetto = 0;
+  let totalBrutto = 0;
+  checked.forEach(cb => {
+    const itemId = parseInt(cb.dataset.itemId!);
+    const item = z.items.find(i => i.id === itemId);
+    if (item) {
+      const markup = item.type === "material" ? (z.markup_materials || 0) : (z.markup_labor || 0);
+      const lineNetto = item.price_netto * (1 + markup / 100) * item.quantity;
+      totalNetto += lineNetto;
+      totalBrutto += brutto(lineNetto, item.vat_rate);
+    }
+  });
+  document.getElementById("selected-count")!.textContent = `${checked.length} zaznaczonych`;
+  document.getElementById("selected-total")!.textContent = `${totalNetto.toFixed(2).replace(".",",")} zł netto | ${totalBrutto.toFixed(2).replace(".",",")} zł brutto`;
 }
 
 // ─── Drag & drop ─────────────────────────────────────────────────
@@ -628,6 +898,65 @@ function initDragDrop(page: HTMLElement, zlecenieId: number): void {
       renderDetail(zlecenieId);
     });
   });
+}
+
+// ─── Bulk select (zlecenie items) ────────────────────────────────
+function initZlecenieBulkSelect(page: HTMLElement, zlecenieId: number): void {
+  const checkAllZ = page.querySelector<HTMLInputElement>("#bulk-check-all-z");
+
+  checkAllZ?.addEventListener("change", (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    page.querySelectorAll<HTMLInputElement>(".bulk-check").forEach((cb) => { cb.checked = checked; });
+    updateZlecenieBulkToolbar(page);
+  });
+  checkAllZ?.addEventListener("click", (e) => e.stopPropagation());
+
+  page.querySelectorAll<HTMLInputElement>(".bulk-check").forEach((cb) => {
+    cb.addEventListener("change", () => updateZlecenieBulkToolbar(page));
+    cb.addEventListener("click", (e) => e.stopPropagation());
+  });
+
+  page.querySelector("#btn-bulk-delete-z")?.addEventListener("click", () => {
+    const checked = page.querySelectorAll<HTMLInputElement>(".bulk-check:checked");
+    const count = checked.length;
+    if (count === 0) return;
+
+    const label = count === 1 ? "pozycję" : count < 5 ? "pozycje" : "pozycji";
+
+    openModal(`
+      <h2 class="modal-title"><i class="fa-solid fa-triangle-exclamation"></i> Potwierdź usunięcie</h2>
+      <p>Czy na pewno chcesz usunąć <strong>${count}</strong> ${label} ze zlecenia?</p>
+      <p class="cell-muted" style="font-size:12px">Tej operacji nie można cofnąć.</p>
+      <div class="modal-footer">
+        <button class="btn" id="btn-bulk-cancel">Anuluj</button>
+        <button class="btn btn-danger" id="btn-bulk-confirm">
+          <i class="fa-solid fa-trash"></i> Usuń ${count} ${label}
+        </button>
+      </div>
+    `);
+
+    document.getElementById("btn-bulk-cancel")!.addEventListener("click", closeModal);
+    document.getElementById("btn-bulk-confirm")!.addEventListener("click", () => {
+      const ids = Array.from(checked).map((cb) => parseInt(cb.dataset.itemId!));
+      ids.forEach((id) => removeZlecenieItem(zlecenieId, id));
+      closeModal();
+      showToast(`Usunięto ${count} pozycji`);
+      renderDetail(zlecenieId);
+    });
+  });
+}
+
+function updateZlecenieBulkToolbar(page: HTMLElement): void {
+  const checked = page.querySelectorAll<HTMLInputElement>(".bulk-check:checked");
+  const toolbar = page.querySelector("#bulk-toolbar-z");
+  const count = page.querySelector("#bulk-count-z");
+
+  if (checked.length > 0) {
+    toolbar?.classList.remove("hidden");
+    if (count) count.textContent = `Zaznaczono: ${checked.length}`;
+  } else {
+    toolbar?.classList.add("hidden");
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -985,7 +1314,7 @@ function openZlecenieModal(z?: Zlecenie): void {
     </div>
     <div class="field">
       <label>Klient</label>
-      <input type="text" id="f-z-client" value="${esc(z?.client ?? "")}" placeholder="np. Jan Kowalski" />
+      ${renderClientPicker("f-z-client", z?.client ?? "")}
     </div>
 
     <div class="field">
@@ -1025,6 +1354,10 @@ function openZlecenieModal(z?: Zlecenie): void {
       <label>Notatki</label>
       <textarea id="f-z-notes" placeholder="Dodatkowe informacje...">${esc(z?.notes ?? "")}</textarea>
     </div>
+    <div class="field">
+      <label>Tagi</label>
+      ${renderTagPicker(z?.tags ?? [], "tag-picker-z")}
+    </div>
     <div class="modal-footer">
       <button class="btn" id="btn-z-cancel">Anuluj</button>
       <button class="btn btn-primary" id="btn-z-save">${isEdit ? "Zapisz" : "Utwórz"}</button>
@@ -1047,7 +1380,11 @@ function openZlecenieModal(z?: Zlecenie): void {
       markup_labor: parseFloat((document.getElementById("f-z-markup-labor") as HTMLInputElement).value) || 0,
       date_start: (document.getElementById("f-z-date-start") as HTMLInputElement).value,
       date_end: (document.getElementById("f-z-date-end") as HTMLInputElement).value,
+      tags: getSelectedTags("tag-picker-z"),
     };
+
+    // Auto-save client to database if new
+    if (input.client) quickAddClientFromName(input.client);
 
     if (isEdit && z) {
       updateZlecenie(z.id, input);
@@ -1134,7 +1471,7 @@ function openFromTemplateModal(): void {
     </div>
     <div class="field">
       <label>Klient</label>
-      <input type="text" id="f-from-tmpl-client" placeholder="np. Jan Kowalski" />
+      ${renderClientPicker("f-from-tmpl-client", "")}
     </div>
     <div class="modal-footer">
       <div style="flex:1">
@@ -1261,6 +1598,80 @@ async function exportCsv(z: Zlecenie): Promise<void> {
   } catch (err) {
     console.error("CSV export error:", err);
   }
+}
+
+// ─── XLSX Export (TSV with .xls extension) ──────────────────────
+function exportZlecenieToXLSX(z: Zlecenie): void {
+  const totals = calcTotals(z);
+  const hasMarkup = (z.markup_materials || 0) > 0 || (z.markup_labor || 0) > 0;
+  const sep = "\t"; // Tab-separated for Excel compatibility
+
+  const priceCell = (val: number): string => val.toFixed(2).replace(".", ",");
+
+  const lines: string[] = [];
+
+  // Header section with zlecenie info
+  lines.push(`Zlecenie:\t${z.name}`);
+  if (z.client) lines.push(`Klient:\t${z.client}`);
+  if (z.status) {
+    const statusCfg = STATUS_CONFIG[z.status as ZlecenieStatus];
+    lines.push(`Status:\t${statusCfg.label}`);
+  }
+  if (z.date_start) lines.push(`Data rozpoczęcia:\t${z.date_start}`);
+  if (z.date_end) lines.push(`Data zakończenia:\t${z.date_end}`);
+  if (z.notes) lines.push(`Notatki:\t${z.notes}`);
+  if (hasMarkup) {
+    lines.push(`Narzut materiały:\t${z.markup_materials || 0}%`);
+    lines.push(`Narzut robocizna:\t${z.markup_labor || 0}%`);
+  }
+  lines.push(""); // Empty row
+
+  // Table header
+  const headers = ["Lp.", "Typ", "Nazwa", "Jednostka", "Ilość", "Cena netto", "VAT%", "Wartość netto", "Wartość brutto"];
+  lines.push(headers.join(sep));
+
+  // Items
+  z.items.forEach((item, i) => {
+    const markupPct = item.type === "material" ? (z.markup_materials || 0) : (z.markup_labor || 0);
+    const priceWithMarkup = item.price_netto * (1 + markupPct / 100);
+    const lineNetto = priceWithMarkup * item.quantity;
+    const lineBrutto = brutto(lineNetto, item.vat_rate);
+
+    const row: string[] = [
+      String(i + 1),
+      item.type === "material" ? "Materiał" : "Robocizna",
+      item.name,
+      item.unit === "m2" ? "m²" : item.unit === "m3" ? "m³" : item.unit,
+      priceCell(item.quantity),
+      priceCell(item.price_netto),
+      String(item.vat_rate),
+      priceCell(lineNetto),
+      priceCell(lineBrutto),
+    ];
+    lines.push(row.join(sep));
+  });
+
+  // Summary row at bottom
+  lines.push(""); // Empty row before totals
+  lines.push(`Razem netto:\t\t\t\t\t\t\t${priceCell(totals.nettoWithMarkup)}`);
+  lines.push(`Razem brutto:\t\t\t\t\t\t\t${priceCell(totals.bruttoWithMarkup)}`);
+
+  // BOM for Excel to recognize UTF-8
+  const BOM = "\uFEFF";
+  const tsvContent = BOM + lines.join("\r\n");
+
+  // Create blob and download
+  const blob = new Blob([tsvContent], { type: "text/tab-separated-values;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `zlecenie-${z.name.replace(/[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/g, "_")}.xls`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showToast("XLSX wyeksportowany");
 }
 
 // ─── Totals calculation ──────────────────────────────────────────

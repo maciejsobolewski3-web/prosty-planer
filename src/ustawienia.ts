@@ -1,5 +1,9 @@
-import { getCompany, saveCompany, type CompanySettings } from "./store";
-import { esc, showToast } from "./ui";
+import { getCompany, saveCompany, exportDatabase, importDatabase, type CompanySettings } from "./store";
+import { getAppMode } from "./store-trade";
+import { esc, showToast, validateNIP, formatNIP, validateEmail } from "./ui";
+import { save, open as dialogOpen } from "@tauri-apps/plugin-dialog";
+import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+import type { AppMode } from "./types";
 
 export function initUstawienia(): void {
   const page = document.getElementById("page-ustawienia")!;
@@ -110,6 +114,27 @@ export function initUstawienia(): void {
       </div>
     </div>
 
+    <!-- Mode switcher -->
+    <div class="settings-section" style="margin-top:20px">
+      <div class="settings-section-title"><i class="fa-solid fa-shuffle" style="margin-right:6px"></i> Tryb pracy</div>
+      <div class="settings-section-body">
+        <div class="backup-row">
+          <div class="backup-info">
+            <strong>Aktualny tryb: ${getAppMode() === "handlowy" ? "Handlowy" : "Usługowy"}</strong>
+            <div class="field-hint">
+              ${getAppMode() === "handlowy"
+                ? "Widzisz: Moje Produkty, Oferty przetargowe, Import z Excela"
+                : "Widzisz: Materiały, Robocizny, Zlecenia"}
+            </div>
+          </div>
+          <button class="btn" id="btn-switch-mode">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            Zmień na ${getAppMode() === "handlowy" ? "usługowy" : "handlowy"}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Backup section -->
     <div class="settings-section" style="margin-top:20px">
       <div class="settings-section-title"><i class="fa-solid fa-database" style="margin-right:6px"></i> Dane aplikacji</div>
@@ -147,6 +172,20 @@ export function initUstawienia(): void {
   // Save
   document.getElementById("btn-save-company")!.addEventListener("click", () => {
     const settings = collectForm();
+
+    // Validate NIP if provided
+    if (settings.nip && !validateNIP(settings.nip)) {
+      showToast("Nieprawidłowy NIP — sprawdź numer");
+      return;
+    }
+    if (settings.nip) settings.nip = formatNIP(settings.nip);
+
+    // Validate email if provided
+    if (settings.email && !validateEmail(settings.email)) {
+      showToast("Nieprawidłowy adres email");
+      return;
+    }
+
     saveCompany(settings);
     showToast("Ustawienia zapisane");
     updatePreview(settings);
@@ -190,51 +229,46 @@ export function initUstawienia(): void {
     });
   });
 
-  // ─── Backup: Export ──────────────────────────────────────────
-  document.getElementById("btn-export-backup")!.addEventListener("click", () => {
-    const keys = [
-      "pp_materials", "pp_labor", "pp_categories",
-      "pp_zlecenia", "pp_templates", "pp_expenses",
-      "pp_company", "pp_id_counter", "pp_wizard_done",
-      "pp_theme", "pp_sidebar_collapsed",
-    ];
+  // ─── Mode switch ──────────────────────────────────────────
+  document.getElementById("btn-switch-mode")?.addEventListener("click", () => {
+    const currentMode = getAppMode();
+    const newMode: AppMode = currentMode === "handlowy" ? "uslugowy" : "handlowy";
+    const ok = confirm(`Zmienić tryb na ${newMode === "handlowy" ? "handlowy" : "usługowy"}?\n\nAplikacja przejdzie do dashboardu z nowym układem menu.`);
+    if (!ok) return;
 
-    const data: Record<string, unknown> = {
-      _meta: {
-        app: "ProstyPlaner",
-        version: "1.0",
-        exported_at: new Date().toISOString(),
-      },
-    };
-
-    for (const key of keys) {
-      const raw = localStorage.getItem(key);
-      if (raw !== null) {
-        try { data[key] = JSON.parse(raw); } catch { data[key] = raw; }
-      }
+    if (typeof (window as any).__ppSwitchMode === "function") {
+      (window as any).__ppSwitchMode(newMode);
     }
+  });
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `prosty-planer-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast("Kopia zapasowa pobrana");
+  // ─── Backup: Export ──────────────────────────────────────────
+  document.getElementById("btn-export-backup")!.addEventListener("click", async () => {
+    try {
+      const filePath = await save({
+        title: "Eksportuj kopię zapasową",
+        defaultPath: `prosty-planer-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!filePath) return;
+      const data = exportDatabase();
+      await writeTextFile(filePath, data);
+      showToast("Kopia zapasowa zapisana");
+    } catch (err) {
+      console.error("Backup export error:", err);
+      showToast("Błąd eksportu");
+    }
   });
 
   // ─── Backup: Import ──────────────────────────────────────────
-  document.getElementById("f-import-backup")!.addEventListener("change", (e) => {
+  document.getElementById("f-import-backup")!.addEventListener("change", async (e) => {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
-        const data = JSON.parse(reader.result as string);
+        const json = reader.result as string;
+        const data = JSON.parse(json);
 
         if (!data._meta || data._meta.app !== "ProstyPlaner") {
           showToast("Nieprawidłowy plik — to nie jest backup Prosty Planer");
@@ -249,14 +283,13 @@ export function initUstawienia(): void {
         );
         if (!ok) return;
 
-        const keys = Object.keys(data).filter((k) => k !== "_meta");
-        for (const key of keys) {
-          const val = typeof data[key] === "string" ? data[key] : JSON.stringify(data[key]);
-          localStorage.setItem(key, val);
+        const success = await importDatabase(json);
+        if (success) {
+          showToast("Dane wczytane — odświeżam");
+          setTimeout(() => location.reload(), 500);
+        } else {
+          showToast("Błąd importu danych");
         }
-
-        showToast("Dane wczytane — odświeżam");
-        setTimeout(() => location.reload(), 500);
       } catch {
         showToast("Błąd wczytywania pliku");
       }
@@ -265,7 +298,7 @@ export function initUstawienia(): void {
   });
 
   // ─── Reset ───────────────────────────────────────────────────
-  document.getElementById("btn-reset-data")!.addEventListener("click", () => {
+  document.getElementById("btn-reset-data")!.addEventListener("click", async () => {
     const ok = confirm(
       "Na pewno chcesz usunąć WSZYSTKIE dane?\n\n" +
       "Materiały, robocizny, zlecenia, wydatki, ustawienia firmy — wszystko zostanie skasowane.\n\n" +
@@ -276,16 +309,34 @@ export function initUstawienia(): void {
     const confirm2 = confirm("Ostatnie ostrzeżenie — kliknij OK żeby wyczyścić dane.");
     if (!confirm2) return;
 
-    const keys = [
-      "pp_materials", "pp_labor", "pp_categories",
-      "pp_zlecenia", "pp_templates", "pp_expenses",
-      "pp_company", "pp_id_counter", "pp_wizard_done",
-      "pp_theme", "pp_sidebar_collapsed",
-    ];
-    for (const key of keys) localStorage.removeItem(key);
-
-    showToast("Dane usunięte — odświeżam");
-    setTimeout(() => location.reload(), 500);
+    try {
+      // Clear the JSON file by importing empty data
+      const emptyDb = JSON.stringify({
+        _meta: { app: "ProstyPlaner", version: "2.0", exported_at: new Date().toISOString() },
+        data: {
+          id_counter: 0,
+          categories: [],
+          materials: [],
+          price_history: [],
+          labor: [],
+          zlecenia: [],
+          templates: [],
+          company: { name: "", nip: "", address: "", city: "", zip: "", phone: "", email: "", website: "", bank_name: "", bank_account: "", logo: "" },
+          expenses: [],
+          clients: [],
+          products: [],
+          offers: [],
+          product_price_history: [],
+          app_mode: "uslugowy",
+        },
+      });
+      await importDatabase(emptyDb);
+      showToast("Dane usunięte — odświeżam");
+      setTimeout(() => location.reload(), 500);
+    } catch (err) {
+      console.error("Reset error:", err);
+      showToast("Błąd podczas resetowania danych");
+    }
   });
 }
 

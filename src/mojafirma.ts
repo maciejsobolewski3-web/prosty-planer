@@ -11,7 +11,17 @@ import {
   getRevenueByMonth,
   type ExpenseInput,
 } from "./store";
+import { getAppMode, TRADE_EXPENSE_CATEGORIES, getOffers } from "./store-trade";
 import { esc, openModal, closeModal, showToast, formatPrice } from "./ui";
+
+/** Get expense categories based on current mode */
+function getActiveCategoriesMap(): Record<string, { label: string; color: string; icon: string }> {
+  const mode = getAppMode();
+  if (mode === "handlowy") {
+    return TRADE_EXPENSE_CATEGORIES as Record<string, { label: string; color: string; icon: string }>;
+  }
+  return EXPENSE_CATEGORIES as Record<string, { label: string; color: string; icon: string }>;
+}
 
 // ─── State (on window to survive Vite HMR) ─────────────────────
 if (!(window as any).__ppFirmaState) {
@@ -100,9 +110,10 @@ function renderExpenses(tabsHtml: string = ""): void {
   const nextMonthStr = toYM(new Date(year, month, 1));
 
   // Category filter pills
+  const activeCats = getActiveCategoriesMap();
   const catPills = `
     <button class="group-pill${STATE.filterCategory === "all" ? " active" : ""}" data-ecat="all">Wszystkie</button>
-    ${Object.entries(EXPENSE_CATEGORIES).map(([key, cfg]) => {
+    ${Object.entries(activeCats).map(([key, cfg]) => {
       const count = allExpenses.filter((e) => e.category === key).length;
       if (count === 0) return "";
       return `<button class="group-pill${STATE.filterCategory === key ? " active" : ""}" data-ecat="${key}">
@@ -127,7 +138,7 @@ function renderExpenses(tabsHtml: string = ""): void {
 
     <!-- Category breakdown cards -->
     <div class="expense-cats">
-      ${Object.entries(EXPENSE_CATEGORIES).map(([key, cfg]) => {
+      ${Object.entries(activeCats).map(([key, cfg]) => {
         const val = byCat[key] || 0;
         const pct = totalMonth > 0 ? Math.round((val / totalMonth) * 100) : 0;
         return `
@@ -164,9 +175,12 @@ function renderExpenses(tabsHtml: string = ""): void {
         </tr></thead>
         <tbody>
           ${expenses.map((e) => {
-            const cat = EXPENSE_CATEGORIES[e.category] || EXPENSE_CATEGORIES.inne;
+            const cat = activeCats[e.category] || activeCats["inne"] || { label: e.category, color: "#9CA3AF", icon: "fa-solid fa-ellipsis" };
             const dateStr = new Date(e.date + "T12:00:00").toLocaleDateString("pl-PL", { day: "numeric", month: "short" });
-            const zlecenie = e.zlecenie_id ? getZlecenia().find((z) => z.id === e.zlecenie_id) : null;
+            const mode = getAppMode();
+            const zlecenie = e.zlecenie_id
+              ? (mode === "handlowy" ? getOffers().find((o) => o.id === e.zlecenie_id) : getZlecenia().find((z) => z.id === e.zlecenie_id))
+              : null;
 
             return `<tr>
               <td><span class="cell-mono" style="font-size:12px">${dateStr}</span></td>
@@ -224,12 +238,25 @@ function renderExpenses(tabsHtml: string = ""): void {
 // ─── Expense modal ───────────────────────────────────────────────
 export function openExpenseModal(expense?: Expense, presetZlecenieId?: number, onSave?: () => void): void {
   const isEdit = !!expense;
-  const zlecenia = getZlecenia();
-  const selectedZid = expense?.zlecenie_id ?? presetZlecenieId ?? null;
-  const zlecenieOptions = zlecenia.map((z) => `<option value="${z.id}"${selectedZid === z.id ? " selected" : ""}>${esc(z.name)}</option>`).join("");
+  const mode = getAppMode();
+  const activeCats = getActiveCategoriesMap();
 
-  const catOptions = Object.entries(EXPENSE_CATEGORIES).map(([key, cfg]) =>
-    `<option value="${key}"${(expense?.category || "materialy") === key ? " selected" : ""}>${cfg.label}</option>`
+  // Link to zlecenie (service) or offer (trade)
+  let linkedOptions = "";
+  let linkedLabel = "Powiązane zlecenie (opcjonalnie)";
+  const selectedZid = expense?.zlecenie_id ?? presetZlecenieId ?? null;
+  if (mode === "handlowy") {
+    linkedLabel = "Powiązana oferta (opcjonalnie)";
+    const offers = getOffers();
+    linkedOptions = offers.map((o) => `<option value="${o.id}"${selectedZid === o.id ? " selected" : ""}>${esc(o.name)}</option>`).join("");
+  } else {
+    const zlecenia = getZlecenia();
+    linkedOptions = zlecenia.map((z) => `<option value="${z.id}"${selectedZid === z.id ? " selected" : ""}>${esc(z.name)}</option>`).join("");
+  }
+
+  const defaultCat = mode === "handlowy" ? "transport" : "materialy";
+  const catOptions = Object.entries(activeCats).map(([key, cfg]) =>
+    `<option value="${key}"${(expense?.category || defaultCat) === key ? " selected" : ""}>${cfg.label}</option>`
   ).join("");
 
   openModal(`
@@ -253,10 +280,10 @@ export function openExpenseModal(expense?: Expense, presetZlecenieId?: number, o
       </div>
     </div>
     <div class="field">
-      <label>Powiązane zlecenie (opcjonalnie)</label>
+      <label>${linkedLabel}</label>
       <select id="f-e-zlecenie">
         <option value="">— brak —</option>
-        ${zlecenieOptions}
+        ${linkedOptions}
       </select>
     </div>
     <div class="field">
@@ -489,8 +516,9 @@ function drawDonutChart(canvasId: string, legendId: string, byCat: Record<string
 
   let legendHtml = "";
 
+  const activeCatsForChart = getActiveCategoriesMap();
   entries.forEach(([key, val]) => {
-    const cfg = EXPENSE_CATEGORIES[key as ExpenseCategory] || EXPENSE_CATEGORIES.inne;
+    const cfg = activeCatsForChart[key] || activeCatsForChart["inne"] || { label: key, color: "#9CA3AF", icon: "fa-solid fa-ellipsis" };
     const sliceAngle = (val / total) * Math.PI * 2;
     const pct = Math.round((val / total) * 100);
 

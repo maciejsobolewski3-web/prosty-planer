@@ -5,6 +5,9 @@ import {
   getCategoryById,
   getZlecenia,
   getExpenses,
+  getClients,
+  addClient,
+  updateClient,
   addZlecenie,
   addZlecenieItem,
   updateZlecenie,
@@ -18,6 +21,29 @@ import {
   updateLabor,
   deleteLabor,
 } from "./store";
+import {
+  getAppMode,
+  getProducts,
+  getProductById,
+  addProduct,
+  updateProduct,
+  deleteProduct,
+  getOffers,
+  getOfferById,
+  addOffer,
+  updateOffer,
+  deleteOffer,
+  addOfferItem,
+  updateOfferItem,
+  removeOfferItem,
+  setOfferStatus,
+  calcOfferTotals,
+  applyGlobalMargin,
+  fuzzyMatchProduct,
+  type ProductInput,
+  type OfferInput,
+} from "./store-trade";
+import type { OfferStatus } from "./types";
 import { esc, showToast } from "./ui";
 
 // ─── Config ──────────────────────────────────────────────────────
@@ -77,6 +103,30 @@ function normalizeActions(rawActions: any[]): AIAction[] {
 
 let onNavigate: ((page: string, zlecenieId?: number) => void) | null = null;
 
+// ─── View context (which offer/zlecenie is currently open) ──────
+interface ViewContext {
+  entity_type: "offer" | "zlecenie" | null;
+  entity_id: number | null;
+}
+
+let viewContext: ViewContext = { entity_type: null, entity_id: null };
+
+export function setAIViewContext(ctx: ViewContext): void {
+  viewContext = ctx;
+  // Update welcome message & placeholder if sidebar is rendered
+  const input = document.getElementById("ai-input") as HTMLTextAreaElement;
+  if (input) {
+    if (ctx.entity_type === "offer" && ctx.entity_id) {
+      const offer = getOfferById(ctx.entity_id);
+      input.placeholder = offer ? `Zapytaj o ofertę "${offer.name}"...` : "Opisz ofertę...";
+    } else if (ctx.entity_type === "zlecenie" && ctx.entity_id) {
+      input.placeholder = "Zapytaj o to zlecenie...";
+    } else {
+      input.placeholder = getAppMode() === "handlowy" ? "Opisz ofertę, dodaj produkty..." : "Opisz zlecenie, dodaj materiały...";
+    }
+  }
+}
+
 export function setAINavigateCallback(cb: (page: string, zlecenieId?: number) => void): void {
   onNavigate = cb;
 }
@@ -96,14 +146,63 @@ function saveHistory(): void {
 
 // ─── Context builder ─────────────────────────────────────────────
 function buildContext() {
-  const materials = getMaterials({ show_archived: false });
-  const labor = getLabor({ show_archived: false });
+  const mode = getAppMode();
   const categories = getCategories();
-  const zlecenia = getZlecenia();
   const expenses = getExpenses();
 
-  return {
-    materials: materials.map((m) => ({
+  const clients = getClients();
+  const base: Record<string, any> = {
+    mode,
+    categories: categories.map((c) => ({ id: c.id, name: c.name })),
+    clients: clients.map((c) => ({ id: c.id, name: c.name, nip: c.nip, city: c.city, phone: c.phone, email: c.email })),
+    expenses: expenses.map((e) => ({
+      id: e.id,
+      name: e.name,
+      amount: e.amount,
+      category: e.category,
+      zlecenie_id: e.zlecenie_id,
+      date: e.date,
+    })),
+  };
+
+  if (mode === "handlowy") {
+    // Trade mode: send products + offers
+    const products = getProducts();
+    const offers = getOffers();
+    base.products = products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      unit: p.unit,
+      purchase_price: p.purchase_price,
+      catalog_price: p.catalog_price,
+      vat_rate: p.vat_rate,
+      category: getCategoryById(p.category_id)?.name || "",
+      supplier: p.supplier,
+      sku: p.sku,
+    }));
+    base.offers = offers.map((o) => ({
+      id: o.id,
+      name: o.name,
+      client: o.client,
+      status: o.status,
+      global_margin: o.global_margin,
+      deadline: o.deadline,
+      items: o.items.map((it) => ({
+        id: it.id,
+        name: it.name,
+        unit: it.unit,
+        quantity: it.quantity,
+        purchase_price: it.purchase_price,
+        offer_price: it.offer_price,
+        product_id: it.product_id,
+      })),
+    }));
+  } else {
+    // Service mode: send materials + labor + zlecenia
+    const materials = getMaterials({ show_archived: false });
+    const labor = getLabor({ show_archived: false });
+    const zlecenia = getZlecenia();
+    base.materials = materials.map((m) => ({
       id: m.id,
       name: m.name,
       unit: m.unit,
@@ -111,17 +210,16 @@ function buildContext() {
       vat_rate: m.vat_rate,
       category: getCategoryById(m.category_id)?.name || "",
       supplier: m.supplier,
-    })),
-    labor: labor.map((l) => ({
+    }));
+    base.labor = labor.map((l) => ({
       id: l.id,
       name: l.name,
       unit: l.unit,
       price_netto: l.price_netto,
       vat_rate: l.vat_rate,
       category: l.category,
-    })),
-    categories: categories.map((c) => ({ id: c.id, name: c.name })),
-    zlecenia: zlecenia.map((z) => ({
+    }));
+    base.zlecenia = zlecenia.map((z) => ({
       id: z.id,
       name: z.name,
       client: z.client,
@@ -137,16 +235,65 @@ function buildContext() {
         price_netto: it.price_netto,
         source_id: it.source_id,
       })),
-    })),
-    expenses: expenses.map((e) => ({
-      id: e.id,
-      name: e.name,
-      amount: e.amount,
-      category: e.category,
-      zlecenie_id: e.zlecenie_id,
-      date: e.date,
-    })),
-  };
+    }));
+  }
+
+  // Add focused entity context
+  if (viewContext.entity_type === "offer" && viewContext.entity_id) {
+    const offer = getOfferById(viewContext.entity_id);
+    if (offer) {
+      const totals = calcOfferTotals(offer.id);
+      base.focused_entity = {
+        type: "offer",
+        id: offer.id,
+        name: offer.name,
+        client: offer.client,
+        status: offer.status,
+        global_margin: offer.global_margin,
+        deadline: offer.deadline,
+        transport_cost: offer.transport_cost,
+        storage_cost: offer.storage_cost,
+        items: offer.items.map((i) => ({
+          name: i.name,
+          quantity: i.quantity,
+          unit: i.unit,
+          purchase_price: i.purchase_price,
+          offer_price: i.offer_price,
+          margin_percent: i.margin_percent,
+          vat_rate: i.vat_rate,
+        })),
+        totals: {
+          totalPurchase: totals.totalPurchase,
+          totalOffer: totals.totalOffer,
+          marginPercent: totals.marginPercent,
+          netProfit: totals.netProfit,
+        },
+      };
+    }
+  } else if (viewContext.entity_type === "zlecenie" && viewContext.entity_id) {
+    const z = getZlecenia().find((zl) => zl.id === viewContext.entity_id);
+    if (z) {
+      base.focused_entity = {
+        type: "zlecenie",
+        id: z.id,
+        name: z.name,
+        client: z.client,
+        status: z.status,
+        markup_materials: z.markup_materials,
+        markup_labor: z.markup_labor,
+        items: z.items.map((i) => ({
+          name: i.name,
+          type: i.type,
+          quantity: i.quantity,
+          unit: i.unit,
+          price_netto: i.price_netto,
+          vat_rate: i.vat_rate,
+        })),
+      };
+    }
+  }
+
+  return base;
 }
 
 // ─── Auth ────────────────────────────────────────────────────────
@@ -171,21 +318,36 @@ async function callAI(message: string): Promise<AIResponse> {
     content: m.content,
   }));
 
+  const body: Record<string, any> = {
+    message,
+    mode: context.mode,
+    categories: context.categories,
+    expenses: context.expenses,
+    history: historyForAPI,
+  };
+
+  // Include mode-specific data
+  if (context.mode === "handlowy") {
+    body.products = context.products;
+    body.offers = context.offers;
+  } else {
+    body.materials = context.materials;
+    body.labor = context.labor;
+    body.zlecenia = context.zlecenia;
+  }
+
+  // Include focused entity context
+  if (context.focused_entity) {
+    body.focused_entity = context.focused_entity;
+  }
+
   const response = await fetch(AI_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({
-      message,
-      materials: context.materials,
-      labor: context.labor,
-      categories: context.categories,
-      zlecenia: context.zlecenia,
-      expenses: context.expenses,
-      history: historyForAPI,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -377,12 +539,220 @@ function executeActions(actions: AIAction[]): string[] {
           break;
         }
 
+        // ── CLIENTS ──
+        case "add_client": {
+          const c = addClient({
+            name: p.name || "Klient",
+            nip: p.nip || "",
+            phone: p.phone || "",
+            email: p.email || "",
+            address: p.address || "",
+            city: p.city || "",
+            contact_person: p.contact_person || "",
+            notes: p.notes || "",
+          });
+          results.push(`✓ Klient: ${c.name}`);
+          break;
+        }
+        case "edit_client": {
+          if (!p.client_id) { results.push(`✗ Brak ID klienta`); break; }
+          const allClients = getClients();
+          const client = allClients.find((c) => c.id === p.client_id);
+          if (!client) { results.push(`✗ Klient #${p.client_id} nie znaleziony`); break; }
+          updateClient(p.client_id, {
+            name: p.name ?? client.name,
+            nip: p.nip ?? client.nip,
+            phone: p.phone ?? client.phone,
+            email: p.email ?? client.email,
+            address: p.address ?? client.address,
+            city: p.city ?? client.city,
+            contact_person: p.contact_person ?? client.contact_person,
+            notes: p.notes ?? client.notes,
+          });
+          results.push(`✓ Zaktualizowano klienta "${client.name}"`);
+          break;
+        }
+
         // ── NAVIGATE ──
         case "navigate": {
           if (onNavigate) {
             const zId = p.page === "zlecenia" && getLastZlecenieId() ? getLastZlecenieId()! : undefined;
             onNavigate(p.page, zId);
           }
+          break;
+        }
+
+        // ══ TRADE MODE ACTIONS ══
+        case "create_offer": {
+          const o = addOffer({
+            name: p.name || "Nowa oferta",
+            client: p.client || "",
+            reference_number: p.reference_number || "",
+            status: p.status || "robocza",
+            notes: p.notes || "",
+            global_margin: p.global_margin ?? 15,
+            transport_cost: p.transport_cost ?? 0,
+            storage_cost: p.storage_cost ?? 0,
+            other_costs: p.other_costs ?? 0,
+            deadline: p.deadline || "",
+            delivery_start: p.delivery_start || "",
+            delivery_end: p.delivery_end || "",
+          });
+          saveLastZlecenieId(o.id);
+          results.push(`✓ Oferta "${o.name}"`);
+          break;
+        }
+        case "add_offer_item": {
+          let targetId = p.offer_id || getLastZlecenieId();
+          if (targetId && !getOfferById(targetId)) {
+            targetId = getLastZlecenieId();
+          }
+          if (!targetId) { results.push(`✗ Brak oferty`); break; }
+          addOfferItem(targetId, {
+            product_id: p.product_id || null,
+            name: p.name || "Pozycja",
+            unit: p.unit || "szt",
+            quantity: p.quantity ?? 1,
+            purchase_price: p.purchase_price ?? 0,
+            offer_price: p.offer_price ?? 0,
+            vat_rate: p.vat_rate ?? 23,
+            margin_percent: p.margin_percent ?? 15,
+            matched: !!p.product_id,
+            notes: p.notes || "",
+          });
+          results.push(`✓ + ${p.name} (${p.quantity ?? 1} ${p.unit || "szt"})`);
+          break;
+        }
+        case "edit_offer": {
+          if (!p.offer_id) { results.push(`✗ Brak ID oferty`); break; }
+          const existing = getOfferById(p.offer_id);
+          if (!existing) { results.push(`✗ Oferta #${p.offer_id} nie znaleziona`); break; }
+          // If global_margin is set, use applyGlobalMargin which recalculates all item prices
+          if (p.global_margin !== undefined) {
+            applyGlobalMargin(p.offer_id, p.global_margin);
+          }
+          const updates: Partial<OfferInput> = {};
+          if (p.name !== undefined) updates.name = p.name;
+          if (p.client !== undefined) updates.client = p.client;
+          if (p.status !== undefined) updates.status = p.status;
+          if (p.notes !== undefined) updates.notes = p.notes;
+          if (p.deadline !== undefined) updates.deadline = p.deadline;
+          if (p.delivery_start !== undefined) updates.delivery_start = p.delivery_start;
+          if (p.delivery_end !== undefined) updates.delivery_end = p.delivery_end;
+          if (Object.keys(updates).length > 0) updateOffer(p.offer_id, updates);
+          results.push(`✓ Zaktualizowano ofertę "${existing.name}"`);
+          break;
+        }
+        case "edit_offer_item": {
+          if (!p.offer_id || !p.item_id) { results.push(`✗ Brak ID`); break; }
+          const itemUpdates: Record<string, any> = {};
+          if (p.name !== undefined) itemUpdates.name = p.name;
+          if (p.unit !== undefined) itemUpdates.unit = p.unit;
+          if (p.quantity !== undefined) itemUpdates.quantity = p.quantity;
+          if (p.purchase_price !== undefined) itemUpdates.purchase_price = p.purchase_price;
+          if (p.offer_price !== undefined) itemUpdates.offer_price = p.offer_price;
+          if (p.vat_rate !== undefined) itemUpdates.vat_rate = p.vat_rate;
+          if (p.margin_percent !== undefined) itemUpdates.margin_percent = p.margin_percent;
+          updateOfferItem(p.offer_id, p.item_id, itemUpdates);
+          results.push(`✓ Zaktualizowano pozycję ${p.name || `#${p.item_id}`}`);
+          break;
+        }
+        case "delete_offer": {
+          if (!p.offer_id) { results.push(`✗ Brak ID`); break; }
+          deleteOffer(p.offer_id);
+          results.push(`✓ Usunięto ofertę #${p.offer_id}`);
+          break;
+        }
+        case "delete_offer_item": {
+          if (!p.offer_id || !p.item_id) { results.push(`✗ Brak ID`); break; }
+          removeOfferItem(p.offer_id, p.item_id);
+          results.push(`✓ Usunięto pozycję #${p.item_id}`);
+          break;
+        }
+        case "add_product": {
+          const prod = addProduct({
+            name: p.name || "Produkt",
+            unit: p.unit || "szt",
+            purchase_price: p.purchase_price ?? 0,
+            catalog_price: p.catalog_price ?? 0,
+            vat_rate: p.vat_rate ?? 23,
+            category_id: p.category_id || null,
+            ean: p.ean || "",
+            sku: p.sku || "",
+            supplier: p.supplier || "",
+            min_order: p.min_order || "",
+            notes: p.notes || "",
+          });
+          results.push(`✓ Produkt: ${prod.name}`);
+          break;
+        }
+        case "edit_product": {
+          if (!p.product_id) { results.push(`✗ Brak ID produktu`); break; }
+          const prod = getProductById(p.product_id);
+          if (!prod) { results.push(`✗ Produkt #${p.product_id} nie znaleziony`); break; }
+          updateProduct(p.product_id, {
+            name: p.name ?? prod.name,
+            unit: p.unit ?? prod.unit,
+            purchase_price: p.purchase_price ?? prod.purchase_price,
+            catalog_price: p.catalog_price ?? prod.catalog_price,
+            vat_rate: p.vat_rate ?? prod.vat_rate,
+            category_id: p.category_id !== undefined ? p.category_id : prod.category_id,
+            ean: p.ean ?? prod.ean,
+            sku: p.sku ?? prod.sku,
+            supplier: p.supplier ?? prod.supplier,
+            min_order: p.min_order ?? prod.min_order,
+            notes: p.notes ?? prod.notes,
+          });
+          results.push(`✓ Zaktualizowano produkt "${prod.name}"`);
+          break;
+        }
+        case "delete_product": {
+          if (!p.product_id) { results.push(`✗ Brak ID`); break; }
+          deleteProduct(p.product_id);
+          results.push(`✓ Usunięto produkt #${p.product_id}`);
+          break;
+        }
+        case "set_offer_status": {
+          if (!p.offer_id || !p.status) { results.push(`✗ Brak danych`); break; }
+          setOfferStatus(p.offer_id, p.status as OfferStatus);
+          results.push(`✓ Status oferty → ${p.status}`);
+          break;
+        }
+        case "save_item_to_catalog": {
+          if (!p.offer_id || !p.item_id) { results.push(`✗ Brak ID`); break; }
+          const srcOffer = getOfferById(p.offer_id);
+          const srcItem = srcOffer?.items.find((i) => i.id === p.item_id);
+          if (!srcItem) { results.push(`✗ Pozycja nie znaleziona`); break; }
+          const existingMatch = fuzzyMatchProduct(srcItem.name);
+          if (existingMatch && existingMatch.score >= 0.8) {
+            updateProduct(existingMatch.product.id, {
+              purchase_price: srcItem.purchase_price || existingMatch.product.purchase_price,
+              catalog_price: srcItem.offer_price || existingMatch.product.catalog_price,
+            });
+            updateOfferItem(p.offer_id, srcItem.id, { product_id: existingMatch.product.id, matched: true });
+            results.push(`✓ Zaktualizowano "${existingMatch.product.name}" w cenniku`);
+          } else {
+            const newProd = addProduct({
+              name: srcItem.name, unit: srcItem.unit,
+              purchase_price: srcItem.purchase_price, catalog_price: srcItem.offer_price,
+              vat_rate: srcItem.vat_rate, category_id: null,
+              ean: "", sku: "", supplier: "", min_order: "", notes: "Dodano przez AI",
+            });
+            updateOfferItem(p.offer_id, srcItem.id, { product_id: newProd.id, matched: true });
+            results.push(`✓ Dodano "${srcItem.name}" do cennika`);
+          }
+          break;
+        }
+        case "add_product_to_catalog": {
+          const newP = addProduct({
+            name: p.name || "Produkt", unit: p.unit || "szt",
+            purchase_price: p.purchase_price ?? 0, catalog_price: p.catalog_price ?? 0,
+            vat_rate: p.vat_rate ?? 23, category_id: null,
+            ean: p.ean || "", sku: p.sku || "",
+            supplier: p.supplier || "", min_order: p.min_order || "",
+            notes: p.notes || "Dodano przez AI",
+          });
+          results.push(`✓ Dodano "${newP.name}" do cennika`);
           break;
         }
 
@@ -462,7 +832,7 @@ function renderSidebar(): void {
     </div>
     <div class="ai-messages" id="ai-messages"></div>
     <div class="ai-input-area">
-      <textarea id="ai-input" class="ai-input" placeholder="Opisz zlecenie, dodaj materiały..." rows="2"></textarea>
+      <textarea id="ai-input" class="ai-input" placeholder="${getAppMode() === "handlowy" ? "Opisz ofertę, dodaj produkty..." : "Opisz zlecenie, dodaj materiały..."}" rows="2"></textarea>
       <button class="ai-send-btn" id="ai-send-btn" title="Wyślij (Enter)">
         <i class="fa-solid fa-paper-plane"></i>
       </button>
@@ -502,6 +872,29 @@ function renderMessages(): void {
 }
 
 function renderWelcome(): string {
+  const mode = getAppMode();
+
+  if (mode === "handlowy") {
+    return `
+      <div class="ai-welcome">
+        <div class="ai-welcome-icon"><i class="fa-solid fa-robot"></i></div>
+        <div class="ai-welcome-title">Cześć! Jestem Twoim asystentem.</div>
+        <div class="ai-welcome-text">Opisz ofertę przetargową, a ja pomogę ją przygotować. Najpierw pokażę plan, potem wykonam operacje.</div>
+        <div class="ai-welcome-examples">
+          <button class="ai-example-btn" data-msg="Mam przetarg na dostawę artykułów spożywczych do szkoły: jajka 500 kartonów, mleko 1200 szt, masło 300 szt. Klient: SP nr 3 Kielce, termin: 15 marca">
+            <i class="fa-solid fa-gavel"></i> Oferta na artykuły
+          </button>
+          <button class="ai-example-btn" data-msg="Dodaj produkt: Ręcznik papierowy ZZ 200 listków, cena zakupu 4.50 zł/opak, dostawca Papirus">
+            <i class="fa-solid fa-plus"></i> Dodaj produkt
+          </button>
+          <button class="ai-example-btn" data-msg="Ustaw marżę 12% na wszystkich pozycjach w ofercie na dostawę do SP nr 7">
+            <i class="fa-solid fa-percent"></i> Zmień marżę
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <div class="ai-welcome">
       <div class="ai-welcome-icon"><i class="fa-solid fa-robot"></i></div>
@@ -586,6 +979,19 @@ function getActionIcon(type: string): string {
     delete_material: '<i class="fa-solid fa-trash"></i>',
     delete_labor: '<i class="fa-solid fa-trash"></i>',
     navigate: '<i class="fa-solid fa-arrow-right"></i>',
+    // Trade mode
+    create_offer: '<i class="fa-solid fa-gavel"></i>',
+    add_offer_item: '<i class="fa-solid fa-plus"></i>',
+    edit_offer: '<i class="fa-solid fa-pen"></i>',
+    edit_offer_item: '<i class="fa-solid fa-pen"></i>',
+    delete_offer: '<i class="fa-solid fa-trash"></i>',
+    delete_offer_item: '<i class="fa-solid fa-trash"></i>',
+    add_product: '<i class="fa-solid fa-cube"></i>',
+    edit_product: '<i class="fa-solid fa-pen"></i>',
+    delete_product: '<i class="fa-solid fa-trash"></i>',
+    set_offer_status: '<i class="fa-solid fa-flag"></i>',
+    add_client: '<i class="fa-solid fa-user-plus"></i>',
+    edit_client: '<i class="fa-solid fa-user-pen"></i>',
   };
   return icons[type] || '<i class="fa-solid fa-circle"></i>';
 }
@@ -606,6 +1012,19 @@ function getActionLabel(action: AIAction): string {
     case "delete_material": return `Usuń materiał #${p.material_id}`;
     case "delete_labor": return `Usuń robociznę #${p.labor_id}`;
     case "navigate": return `Przejdź: ${p.page}`;
+    // Trade mode
+    case "create_offer": return `Oferta: ${p.name || "nowa"}`;
+    case "add_offer_item": return `${p.name} — ${p.quantity || 1} ${p.unit || "szt"}`;
+    case "edit_offer": return `Edycja oferty #${p.offer_id}`;
+    case "edit_offer_item": return `Edycja pozycji: ${p.name || `#${p.item_id}`}`;
+    case "delete_offer": return `Usuń ofertę #${p.offer_id}`;
+    case "delete_offer_item": return `Usuń pozycję #${p.item_id}`;
+    case "add_product": return `+ Produkt: ${p.name}`;
+    case "edit_product": return `Edycja: ${p.name || `#${p.product_id}`}`;
+    case "delete_product": return `Usuń produkt #${p.product_id}`;
+    case "set_offer_status": return `Status → ${p.status}`;
+    case "add_client": return `+ Klient: ${p.name}`;
+    case "edit_client": return `Edycja klienta #${p.client_id}`;
     default: return action.type;
   }
 }
@@ -668,9 +1087,12 @@ async function handleConfirm(msgIdx: number): Promise<void> {
     saveHistory();
 
     if (getLastZlecenieId() && onNavigate) {
+      const mode = getAppMode();
+      const page = mode === "handlowy" ? "offers" : "zlecenia";
+      const toast = mode === "handlowy" ? "Oferta utworzona przez AI" : "Zlecenie utworzone przez AI";
       setTimeout(() => {
-        onNavigate!("zlecenia", getLastZlecenieId()!);
-        showToast("Zlecenie utworzone przez AI");
+        onNavigate!(page, getLastZlecenieId()!);
+        showToast(toast);
       }, 500);
     } else {
       // Refresh current view even without navigation
@@ -709,11 +1131,52 @@ function handleCancel(msgIdx: number): void {
   renderMessages();
 }
 
+// ─── Quick calculator ────────────────────────────────────────────
+function tryQuickCalc(input: string): string | null {
+  // Only if the message looks like a math expression
+  const cleaned = input.trim().replace(/\s+/g, "");
+  // Must contain at least one operator and be mostly math chars
+  if (!/[+\-*/]/.test(cleaned)) return null;
+  if (!/^[\d.,+\-*/()%\s]+$/.test(cleaned)) return null;
+  // Replace comma with dot for Polish decimal separator
+  const expr = cleaned.replace(/,/g, ".");
+  try {
+    // Safe eval using Function constructor (no access to globals)
+    const result = new Function(`"use strict"; return (${expr})`)();
+    if (typeof result !== "number" || !isFinite(result)) return null;
+    // Format result with Polish comma
+    const formatted = result.toFixed(2).replace(".", ",");
+    return `${input} = ${formatted}`;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Send message ────────────────────────────────────────────────
 async function sendMessage(): Promise<void> {
   const input = document.getElementById("ai-input") as HTMLTextAreaElement;
   const text = input.value.trim();
   if (!text || isLoading) return;
+
+  // Quick calc — detect math expressions
+  const mathResult = tryQuickCalc(text);
+  if (mathResult !== null) {
+    chatHistory.push({
+      role: "user",
+      content: text,
+      timestamp: new Date().toISOString(),
+    });
+    chatHistory.push({
+      role: "assistant",
+      content: `<div style="font-size:13px"><i class="fa-solid fa-calculator" style="margin-right:4px"></i> <strong>${mathResult}</strong></div>`,
+      timestamp: new Date().toISOString(),
+    });
+    saveHistory();
+    input.value = "";
+    input.style.height = "auto";
+    renderMessages();
+    return;
+  }
 
   chatHistory.push({
     role: "user",
@@ -763,8 +1226,10 @@ async function sendMessage(): Promise<void> {
       });
 
       if (getLastZlecenieId() && onNavigate) {
+        const mode = getAppMode();
+        const page = mode === "handlowy" ? "offers" : "zlecenia";
         setTimeout(() => {
-          onNavigate!("zlecenia", getLastZlecenieId()!);
+          onNavigate!(page, getLastZlecenieId()!);
           showToast("Akcja AI wykonana");
         }, 500);
       }
