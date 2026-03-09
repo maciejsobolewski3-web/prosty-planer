@@ -13,6 +13,8 @@ import {
 } from "./store";
 import { getAppMode, TRADE_EXPENSE_CATEGORIES, getOffers } from "./store-trade";
 import { esc, openModal, closeModal, showToast, formatPrice } from "./ui";
+import { dpHeader, dpSections, dpFooter, dpCollect, dpValidate, dpBindActions, dpFocus, type DPSection, type DPFooterButton } from "./detail-page";
+import { dangerModal } from "./danger-modal";
 
 /** Get expense categories based on current mode */
 function getActiveCategoriesMap(): Record<string, { label: string; color: string; icon: string }> {
@@ -29,6 +31,8 @@ if (!(window as any).__ppFirmaState) {
     currentMonth: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`,
     filterCategory: "all",
     activeTab: "wydatki",
+    expenseView: "list" as "list" | "detail",
+    expenseDetailId: null as number | null,
   };
 }
 const STATE = (window as any).__ppFirmaState;
@@ -56,12 +60,18 @@ export function initMojaFirma(): void {
   document.getElementById("topbar-actions")!.innerHTML = `
     <button class="btn btn-primary" id="btn-add-expense"><i class="fa-solid fa-plus"></i> Dodaj wydatek</button>
   `;
-  document.getElementById("btn-add-expense")!.addEventListener("click", () => openExpenseModal());
+  document.getElementById("btn-add-expense")!.addEventListener("click", () => openExpenseDetailView());
   renderPage();
 }
 
 function renderPage(): void {
   const page = document.getElementById("page-mojafirma")!;
+
+  // If showing expense detail view
+  if (STATE.expenseView === "detail") {
+    renderExpenseDetail();
+    return;
+  }
 
   // Tabs
   const tabsHtml = `
@@ -216,7 +226,7 @@ function renderExpenses(tabsHtml: string = ""): void {
   page.querySelectorAll<HTMLButtonElement>("[data-edit-expense]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const e = getExpenses().find((x) => x.id === parseInt(btn.dataset.editExpense!));
-      if (e) openExpenseModal(e);
+      if (e) openExpenseDetailView(e.id);
     });
   });
 
@@ -235,7 +245,208 @@ function renderExpenses(tabsHtml: string = ""): void {
   });
 }
 
-// ─── Expense modal ───────────────────────────────────────────────
+// ─── Expense Detail View ────────────────────────────────────────
+function openExpenseDetailView(expenseId?: number): void {
+  STATE.expenseView = "detail";
+  STATE.expenseDetailId = expenseId ?? null;
+  renderPage();
+}
+
+function closeExpenseDetailView(): void {
+  STATE.expenseView = "list";
+  STATE.expenseDetailId = null;
+  renderPage();
+}
+
+function renderExpenseDetail(): void {
+  const page = document.getElementById("page-mojafirma")!;
+  const expense = STATE.expenseDetailId ? getExpenses().find((e) => e.id === STATE.expenseDetailId) : undefined;
+  const isEdit = !!expense;
+
+  const sections = getExpenseSections(expense);
+
+  page.innerHTML = dpHeader(isEdit ? "Edytuj wydatek" : "Nowy wydatek", "back") +
+    dpSections(sections) +
+    dpFooter(getExpenseFooterButtons(isEdit, expense));
+
+  // Bind detail page functionality
+  dpBindActions(page, {
+    back: () => closeExpenseDetailView(),
+    save: () => saveExpense(page, expense, sections),
+    delete: () => {
+      if (expense) {
+        dangerModal(
+          "Usuń wydatek",
+          `Czy na pewno chcesz usunąć wydatek „${esc(expense.name)}"?`
+        ).then((confirmed) => {
+          if (confirmed) {
+            deleteExpense(expense.id);
+            showToast("Wydatek usunięty");
+            closeExpenseDetailView();
+          }
+        });
+      }
+    },
+  });
+  dpFocus(page, sections);
+}
+
+function getExpenseSections(expense?: Expense): DPSection[] {
+  const mode = getAppMode();
+  const activeCats = getActiveCategoriesMap();
+  
+  let linkedOptions = [{ value: "", label: "— brak —" }];
+  let linkedLabel = "Powiązane zlecenie (opcjonalnie)";
+  
+  if (mode === "handlowy") {
+    linkedLabel = "Powiązana oferta (opcjonalnie)";
+    linkedOptions = linkedOptions.concat(
+      getOffers().map((o) => ({ value: String(o.id), label: esc(o.name) }))
+    );
+  } else {
+    linkedOptions = linkedOptions.concat(
+      getZlecenia().map((z) => ({ value: String(z.id), label: esc(z.name) }))
+    );
+  }
+
+  const defaultCat = mode === "handlowy" ? "transport" : "materialy";
+
+  return [
+    {
+      id: "section-expense",
+      title: "Wydatek",
+      columns: 2,
+      fields: [
+        {
+          id: "f-exp-name",
+          name: "name",
+          label: "Opis",
+          type: "text",
+          required: true,
+          placeholder: "np. Zakup narzędzi",
+          value: expense?.name ?? "",
+        },
+        {
+          id: "f-exp-amount",
+          name: "amount",
+          label: "Kwota brutto (PLN)",
+          type: "number",
+          required: true,
+          step: 0.01,
+          min: 0,
+          placeholder: "0,00",
+          value: String(expense?.amount ?? ""),
+        },
+        {
+          id: "f-exp-category",
+          name: "category",
+          label: "Kategoria",
+          type: "select",
+          value: expense?.category ?? defaultCat,
+          options: Object.entries(activeCats).map(([key, cfg]) => ({
+            value: key,
+            label: cfg.label,
+          })),
+        },
+        {
+          id: "f-exp-zlecenie",
+          name: "zlecenie_id",
+          label: linkedLabel,
+          type: "select",
+          value: String(expense?.zlecenie_id ?? ""),
+          options: linkedOptions,
+        },
+        {
+          id: "f-exp-date",
+          name: "date",
+          label: "Data",
+          type: "date",
+          value: expense?.date ?? new Date().toISOString().slice(0, 10),
+        },
+        {
+          id: "f-exp-notes",
+          name: "notes",
+          label: "Notatki",
+          type: "textarea",
+          placeholder: "Opcjonalne...",
+          value: expense?.notes ?? "",
+          span: 2,
+          rows: 2,
+        },
+      ],
+    },
+  ];
+}
+
+function getExpenseFooterButtons(isEdit: boolean, expense?: Expense): DPFooterButton[] {
+  const buttons: DPFooterButton[] = [
+    {
+      id: "btn-cancel",
+      label: "Anuluj",
+      action: "cancel",
+      style: "secondary",
+    },
+  ];
+
+  if (isEdit && expense) {
+    buttons.push({
+      id: "btn-delete",
+      label: "Usuń",
+      action: "delete",
+      style: "danger",
+    });
+  }
+
+  buttons.push({
+    id: "btn-save",
+    label: isEdit ? "Zapisz" : "Dodaj",
+    action: "save",
+    style: "primary",
+  });
+
+  return buttons;
+}
+
+function saveExpense(page: HTMLElement, expense?: Expense, sections?: DPSection[]): void {
+  if (!sections) {
+    sections = getExpenseSections(expense);
+  }
+  const data = dpCollect(page, sections);
+  const result = dpValidate(page, sections);
+  if (!result.valid) {
+    return;
+  }
+  const input: ExpenseInput = {
+    name: (data.name ?? "").trim(),
+    amount: parseFloat(data.amount as string) || 0,
+    category: (data.category ?? "materialy") as ExpenseCategory,
+    zlecenie_id: data.zlecenie_id ? parseInt(data.zlecenie_id as string) : null,
+    date: data.date ?? new Date().toISOString().slice(0, 10),
+    notes: (data.notes ?? "").trim(),
+  };
+
+  if (expense) {
+    updateExpense(expense.id, input);
+    showToast("Wydatek zaktualizowany");
+  } else {
+    addExpense(input);
+    showToast("Wydatek dodany");
+  }
+
+  closeExpenseDetailView();
+}
+
+function getExpenseValidationRules(): Record<string, (value: any) => string | null> {
+  return {
+    "f-exp-name": (value) => !value || !value.trim() ? "Opis jest wymagany" : null,
+    "f-exp-amount": (value) => {
+      const num = parseFloat(value as string);
+      return !value || isNaN(num) || num < 0 ? "Kwota musi być liczbą dodatnią" : null;
+    },
+  };
+}
+
+// ─── Expense Modal (legacy — for cross-module calls from zlecenia.ts) ──
 export function openExpenseModal(expense?: Expense, presetZlecenieId?: number, onSave?: () => void): void {
   const isEdit = !!expense;
   const mode = getAppMode();

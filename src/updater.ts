@@ -42,16 +42,22 @@ export async function checkForUpdates(silent: boolean = true): Promise<void> {
     );
 
     if (shouldUpdate) {
-      console.log("Pobieram aktualizację...");
-      // Download and install
-      await update.downloadAndInstall();
-      // Restart the app
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
+      try {
+        console.log("Pobieram aktualizację...");
+        await update.downloadAndInstall();
+        const { relaunch } = await import("@tauri-apps/plugin-process");
+        await relaunch();
+      } catch (downloadError) {
+        console.error("Błąd pobierania aktualizacji:", downloadError);
+        // Zawsze pokaż błąd pobierania — user kliknął "Aktualizuj" więc czeka
+        await ask(
+          `Nie udało się pobrać aktualizacji:\n${downloadError}\n\nSprawdź połączenie z internetem i spróbuj ponownie.`,
+          { title: "Błąd aktualizacji", kind: "error" }
+        );
+      }
     }
   } catch (error) {
     console.error("Błąd sprawdzania aktualizacji:", error);
-    // Silently fail on auto-check, show error on manual check
     if (!silent) {
       await ask(`Nie udało się sprawdzić aktualizacji: ${error}`, {
         title: "Błąd",

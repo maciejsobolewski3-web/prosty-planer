@@ -15,6 +15,9 @@ import {
   type ProductInput,
 } from "./store-trade";
 import { getCategories, getCategoryById } from "./store";
+import { dpHeader, dpSections, dpFooter, dpCollect, dpValidate, dpBindActions, dpFocus, type DPSection, type DPFooterButton } from "./detail-page";
+import { dangerModal } from "./danger-modal";
+import { bindInlineEdits } from "./inline-edit";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import {
@@ -37,6 +40,9 @@ let filterView: "all" | "favorites" | "archived" = "all";
 let filterCategoryId: number | null = null;
 let sortState: SortState = { column: "name", dir: "asc" };
 let filterSupplier: string | null = null;
+
+let view: "list" | "detail" = "list";
+let detailId: number | null = null;
 
 export function setProductFilterView(view: "all" | "favorites" | "archived"): void {
   filterView = view;
@@ -64,8 +70,17 @@ function rebuildFilter(): void {
   if (filterCategoryId !== null) currentFilter.category_id = filterCategoryId;
 }
 
-// ─── Render ──────────────────────────────────────────────────────
+// ─── Render dispatch ─────────────────────────────────────────────
 function render(): void {
+  if (view === "detail") {
+    renderDetail();
+  } else {
+    renderList();
+  }
+}
+
+// ─── List view ───────────────────────────────────────────────────
+function renderList(): void {
   const page = document.getElementById("page-products")!;
   let products = getProducts(currentFilter);
 
@@ -90,7 +105,7 @@ function render(): void {
     </button>
   `;
   document.getElementById("btn-export-csv")?.addEventListener("click", exportProductsCSV);
-  document.getElementById("btn-add-product")!.addEventListener("click", () => openProductModal());
+  document.getElementById("btn-add-product")!.addEventListener("click", () => openProductDetail());
 
   if (products.length === 0) {
     page.innerHTML = `
@@ -103,7 +118,7 @@ function render(): void {
         </button>
       </div>
     `;
-    page.querySelector("#btn-empty-add-product")?.addEventListener("click", () => openProductModal());
+    page.querySelector("#btn-empty-add-product")?.addEventListener("click", () => openProductDetail());
     return;
   }
 
@@ -128,7 +143,7 @@ function render(): void {
     btn.addEventListener("click", () => {
       const val = btn.dataset.supplierFilter!;
       filterSupplier = val || null;
-      render();
+      renderList();
     });
   });
 
@@ -137,7 +152,7 @@ function render(): void {
 
 // ─── Table ───────────────────────────────────────────────────────
 function renderTable(products: Product[]): string {
-  // Sort
+  // Sort (sortArray takes 4 args: array, column, direction, getter function)
   const sorted = sortArray(products, sortState.column, sortState.dir, (p, col) => {
     switch (col) {
       case "name": return p.name;
@@ -165,7 +180,10 @@ function renderTable(products: Product[]): string {
       </td>
       <td><strong>${esc(p.name)}</strong></td>
       <td><span class="cell-unit">${esc(p.unit)}</span></td>
-      <td><span class="cell-mono">${formatPrice(p.purchase_price)} zł</span></td>
+      <td class="inline-edit-cell" data-field="purchase_price" data-id="${p.id}" data-value="${p.purchase_price}">
+        <span class="cell-mono inline-edit-display">${formatPrice(p.purchase_price)} zł</span>
+        <input type="number" step="0.01" min="0" class="inline-edit-input" value="${p.purchase_price}" style="display:none" />
+      </td>
       <td>
         ${p.catalog_price > 0
           ? `<span class="cell-mono">${formatPrice(p.catalog_price)} zł</span>`
@@ -222,14 +240,26 @@ function bindTableEvents(page: HTMLElement): void {
   // Sort headers
   bindSortHeaders(page, sortState, (newState) => {
     sortState = newState;
-    render();
+    renderList();
+  });
+
+  // Inline edits for purchase_price (bindInlineEdits takes container, selector, onSave, typeMap)
+  bindInlineEdits(page, "[data-field='purchase_price']", (productId: number, field: string, newValue: string | number) => {
+    const value = parseFloat(String(newValue));
+    if (isNaN(value) || value < 0) return;
+    const prod = getProducts({ show_archived: true }).find((p) => p.id === productId);
+    if (!prod) return;
+    updateProduct(productId, { ...prod, [field]: value });
+    showToast("Cena zaktualizowana");
+    renderList();
+    notifySidebarUpdate();
   });
 
   page.querySelectorAll<HTMLElement>("[data-fav]").forEach((el) => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
       toggleProductFavorite(parseInt(el.dataset.fav!));
-      render();
+      renderList();
       notifySidebarUpdate();
     });
   });
@@ -237,9 +267,10 @@ function bindTableEvents(page: HTMLElement): void {
   page.querySelectorAll<HTMLButtonElement>("[data-edit]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const p = getProducts({ show_archived: true }).find((x) => x.id === parseInt(btn.dataset.edit!))
-        || getProducts().find((x) => x.id === parseInt(btn.dataset.edit!));
-      if (p) openProductModal(p);
+      const id = parseInt(btn.dataset.edit!);
+      const p = getProducts({ show_archived: true }).find((x) => x.id === id)
+        || getProducts().find((x) => x.id === id);
+      if (p) openProductDetail(p);
     });
   });
 
@@ -248,7 +279,7 @@ function bindTableEvents(page: HTMLElement): void {
       e.stopPropagation();
       archiveProduct(parseInt(btn.dataset.archive!));
       showToast("Produkt zarchiwizowany");
-      render();
+      renderList();
       notifySidebarUpdate();
     });
   });
@@ -272,7 +303,7 @@ function bindTableEvents(page: HTMLElement): void {
         notes: prod.notes,
       });
       showToast("Produkt zduplikowany");
-      render();
+      renderList();
       notifySidebarUpdate();
     });
   });
@@ -280,11 +311,17 @@ function bindTableEvents(page: HTMLElement): void {
   page.querySelectorAll<HTMLButtonElement>("[data-delete]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (!confirm("Na pewno usunąć ten produkt?")) return;
-      deleteProduct(parseInt(btn.dataset.delete!));
-      showToast("Produkt usunięty");
-      render();
-      notifySidebarUpdate();
+      const id = parseInt(btn.dataset.delete!);
+      const prod = getProducts({ show_archived: true }).find((p) => p.id === id);
+      if (!prod) return;
+      dangerModal(`Usunąć produkt "${esc(prod.name)}"?`, "Tej operacji nie można cofnąć.", "Usuń").then((confirmed) => {
+        if (confirmed) {
+          deleteProduct(id);
+          showToast("Produkt usunięty");
+          renderList();
+          notifySidebarUpdate();
+        }
+      });
     });
   });
 
@@ -293,7 +330,7 @@ function bindTableEvents(page: HTMLElement): void {
       const id = parseInt(tr.dataset.id!);
       const p = getProducts({ show_archived: true }).find((x) => x.id === id)
         || getProducts().find((x) => x.id === id);
-      if (p) openProductModal(p);
+      if (p) openProductDetail(p);
     });
   });
 
@@ -318,26 +355,18 @@ function bindTableEvents(page: HTMLElement): void {
 
     const label = count === 1 ? "produkt" : count < 5 ? "produkty" : "produktów";
 
-    openModal(`
-      <h2 class="modal-title"><i class="fa-solid fa-triangle-exclamation"></i> Potwierdź usunięcie</h2>
-      <p>Czy na pewno chcesz usunąć <strong>${count}</strong> ${label}?</p>
-      <p class="cell-muted" style="font-size:12px">Tej operacji nie można cofnąć.</p>
-      <div class="modal-footer">
-        <button class="btn" id="btn-bulk-cancel">Anuluj</button>
-        <button class="btn btn-danger" id="btn-bulk-confirm">
-          <i class="fa-solid fa-trash"></i> Usuń ${count} ${label}
-        </button>
-      </div>
-    `);
-
-    document.getElementById("btn-bulk-cancel")!.addEventListener("click", closeModal);
-    document.getElementById("btn-bulk-confirm")!.addEventListener("click", () => {
-      const ids = Array.from(checked).map((cb) => parseInt(cb.dataset.productId!));
-      ids.forEach((id) => deleteProduct(id));
-      closeModal();
-      showToast(`Usunięto ${count} produktów`);
-      render();
-      notifySidebarUpdate();
+    dangerModal(
+      `Usunąć ${count} ${label}?`,
+      "Tej operacji nie można cofnąć.",
+      `Usuń ${count} ${label}`
+    ).then((confirmed) => {
+      if (confirmed) {
+        const ids = Array.from(checked).map((cb) => parseInt(cb.dataset.productId!));
+        ids.forEach((id) => deleteProduct(id));
+        showToast(`Usunięto ${count} produktów`);
+        renderList();
+        notifySidebarUpdate();
+      }
     });
   });
 
@@ -349,7 +378,7 @@ function bindTableEvents(page: HTMLElement): void {
     const ids = Array.from(checked).map((cb) => parseInt(cb.dataset.productId!));
     ids.forEach((id) => archiveProduct(id));
     showToast(`Zarchiwizowano ${count} produktów`);
-    render();
+    renderList();
     notifySidebarUpdate();
   });
 }
@@ -367,158 +396,153 @@ function updateProductBulkToolbar(page: HTMLElement): void {
   }
 }
 
-// ─── Product modal ──────────────────────────────────────────────
-function openProductModal(product?: Product): void {
-  const isEdit = !!product;
+// ─── Detail view (product form) ──────────────────────────────────
+function getProductSections(product?: Product): DPSection[] {
   const categories = getCategories();
-  const catOptions = categories
-    .map((c) => `<option value="${c.id}"${product?.category_id === c.id ? " selected" : ""}>${esc(c.name)}</option>`)
-    .join("");
-
-  openModal(`
-    <h2 class="modal-title">${isEdit ? "Edytuj produkt" : "Dodaj produkt"}</h2>
-
-    <div class="field">
-      <label>Nazwa produktu</label>
-      <input type="text" id="f-p-name" value="${esc(product?.name ?? "")}" placeholder="np. Jajka kurze M karton 30szt" />
-    </div>
-
-    <div class="field-row field-row-3">
-      <div class="field">
-        <label>Cena zakupu netto (PLN)</label>
-        <input type="number" step="0.01" id="f-p-purchase" value="${product?.purchase_price ?? ""}" placeholder="0,00" />
-      </div>
-      <div class="field">
-        <label>Cena katalogowa netto</label>
-        <input type="number" step="0.01" id="f-p-catalog" value="${product?.catalog_price ?? ""}" placeholder="opcjonalnie" />
-      </div>
-      <div class="field">
-        <label>VAT (%)</label>
-        <select id="f-p-vat">
-          ${[23, 8, 5, 0].map((v) => `<option value="${v}"${(product?.vat_rate ?? 23) === v ? " selected" : ""}>${v}%</option>`).join("")}
-        </select>
-      </div>
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Jednostka</label>
-        <select id="f-p-unit">
-          ${["szt", "kg", "l", "opak", "paleta", "karton", "ryza", "para", "m", "m2", "m3", "kpl"].map(
-            (u) => `<option value="${u}"${product?.unit === u ? " selected" : ""}>${u === "m2" ? "m²" : u === "m3" ? "m³" : u}</option>`
-          ).join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label>Kategoria</label>
-        <select id="f-p-category">
-          <option value="">— bez kategorii —</option>
-          ${catOptions}
-        </select>
-      </div>
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>EAN (kod kreskowy)</label>
-        <input type="text" id="f-p-ean" value="${esc(product?.ean ?? "")}" placeholder="opcjonalnie" />
-      </div>
-      <div class="field">
-        <label>SKU / Numer katalogowy</label>
-        <input type="text" id="f-p-sku" value="${esc(product?.sku ?? "")}" placeholder="opcjonalnie" />
-      </div>
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Dostawca / Producent</label>
-        <input type="text" id="f-p-supplier" value="${esc(product?.supplier ?? "")}" placeholder="np. Ferma Kowalski" />
-      </div>
-      <div class="field">
-        <label>Min. zamówienie</label>
-        <input type="text" id="f-p-minorder" value="${esc(product?.min_order ?? "")}" placeholder="np. karton 12 szt" />
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Notatki</label>
-      <textarea id="f-p-notes" placeholder="Dodatkowe informacje...">${esc(product?.notes ?? "")}</textarea>
-    </div>
-
-    ${isEdit ? (() => {
-      const history = getProductPriceHistory(product!.id);
-      if (history.length === 0) return "";
-      return `<div style="margin-bottom:16px;border-top:1px solid var(--border);padding-top:12px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-secondary)">
-          <i class="fa-solid fa-clock-rotate-left" style="font-size:11px"></i> Historia cen (${history.length})
-        </div>
-        <div style="max-height:120px;overflow-y:auto;font-size:12px">
-          ${history.slice(0, 10).map((h: any) => {
-            const date = new Date(h.changed_at).toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" });
-            return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
-              <span class="cell-muted">${date}</span>
-              <span class="cell-mono">${formatPrice(h.purchase_price)} zł${h.catalog_price ? ` / kat: ${formatPrice(h.catalog_price)} zł` : ""}</span>
-            </div>`;
-          }).join("")}
-        </div>
-      </div>`;
-    })() : ""}
-
-    <div class="modal-footer">
-      <button class="btn" id="btn-p-cancel">Anuluj</button>
-      <button class="btn btn-primary" id="btn-p-save">${isEdit ? "Zapisz" : "Dodaj"}</button>
-    </div>
-  `);
-
-  setTimeout(() => (document.getElementById("f-p-name") as HTMLInputElement)?.focus(), 80);
-  document.getElementById("btn-p-cancel")!.addEventListener("click", closeModal);
-
-  const save = () => {
-    const name = (document.getElementById("f-p-name") as HTMLInputElement).value.trim();
-    if (!name) { (document.getElementById("f-p-name") as HTMLInputElement).focus(); return; }
-
-    const input: ProductInput = {
-      name,
-      unit: (document.getElementById("f-p-unit") as HTMLSelectElement).value,
-      purchase_price: parseFloat((document.getElementById("f-p-purchase") as HTMLInputElement).value) || 0,
-      catalog_price: parseFloat((document.getElementById("f-p-catalog") as HTMLInputElement).value) || 0,
-      vat_rate: parseInt((document.getElementById("f-p-vat") as HTMLSelectElement).value),
-      category_id: (document.getElementById("f-p-category") as HTMLSelectElement).value
-        ? parseInt((document.getElementById("f-p-category") as HTMLSelectElement).value)
-        : null,
-      ean: (document.getElementById("f-p-ean") as HTMLInputElement).value.trim(),
-      sku: (document.getElementById("f-p-sku") as HTMLInputElement).value.trim(),
-      supplier: (document.getElementById("f-p-supplier") as HTMLInputElement).value.trim(),
-      min_order: (document.getElementById("f-p-minorder") as HTMLInputElement).value.trim(),
-      notes: (document.getElementById("f-p-notes") as HTMLTextAreaElement).value.trim(),
-    };
-
-    // Check for duplicate names (but skip if editing the same product)
-    if (!isEdit) {
-      const dupName = checkDuplicateName(input.name, getProducts({ show_archived: true }).map(p => p.name));
-      if (dupName && !confirm(`Produkt o podobnej nazwie już istnieje: "${dupName}". Dodać mimo to?`)) return;
+  const catOptions = [{ value: "", label: "— bez kategorii —" }, ...categories.map(c => ({ value: String(c.id), label: c.name }))];
+  
+  return [
+    {
+      id: "section-general",
+      title: "Podstawowe informacje",
+      columns: 2,
+      fields: [
+        { id: "f-p-name", name: "name", label: "Nazwa produktu", type: "text", required: true, placeholder: "np. Rękawice robocze L", value: product?.name ?? "" },
+        { id: "f-p-category", name: "category_id", label: "Kategoria", type: "select", value: product?.category_id !== null ? String(product?.category_id) : "", options: catOptions },
+        { id: "f-p-supplier", name: "supplier", label: "Producent / Hurtownia", type: "text", placeholder: "np. 3M", value: product?.supplier ?? "" },
+        { id: "f-p-min-order", name: "min_order", label: "Min. zamówienie", type: "text", placeholder: "np. karton 12 szt", value: product?.min_order ?? "" },
+      ]
+    },
+    {
+      id: "section-pricing",
+      title: "Ceny i VAT",
+      columns: 3,
+      fields: [
+        { id: "f-p-purchase", name: "purchase_price", label: "Cena zakupu netto", type: "number", step: 0.01, min: 0, placeholder: "0,00", value: product?.purchase_price ?? "" },
+        { id: "f-p-catalog", name: "catalog_price", label: "Cena katalogowa netto", type: "number", step: 0.01, min: 0, placeholder: "opcjonalnie", value: product?.catalog_price ?? "" },
+        { id: "f-p-vat", name: "vat_rate", label: "VAT (%)", type: "select", value: String(product?.vat_rate ?? 23), options: [23,8,5,0].map(v => ({ value: String(v), label: v + "%" })) },
+      ]
+    },
+    {
+      id: "section-codes",
+      title: "Kody i jednostki",
+      columns: 3,
+      fields: [
+        { id: "f-p-unit", name: "unit", label: "Jednostka", type: "select", value: product?.unit ?? "szt", options: ["szt","kg","l","opak","paleta","karton","ryza","para","m","m2","m3","kpl"].map(u => ({ value: u, label: u === "m2" ? "m²" : u === "m3" ? "m³" : u })) },
+        { id: "f-p-ean", name: "ean", label: "EAN (kod kreskowy)", type: "text", placeholder: "opcjonalnie", value: product?.ean ?? "" },
+        { id: "f-p-sku", name: "sku", label: "SKU / Nr katalogowy", type: "text", placeholder: "opcjonalnie", value: product?.sku ?? "" },
+      ]
+    },
+    {
+      id: "section-notes",
+      title: "Notatki",
+      columns: 1,
+      fields: [
+        { id: "f-p-notes", name: "notes", label: "Notatki", type: "textarea", placeholder: "Dodatkowe informacje...", value: product?.notes ?? "", rows: 3 },
+      ],
+      customHtml: product ? renderProductPriceHistory(product.id) : "",
     }
+  ];
+}
 
-    if (isEdit && product) {
-      updateProduct(product.id, input);
-      showToast("Produkt zaktualizowany");
-    } else {
-      addProduct(input);
-      showToast("Produkt dodany");
-    }
+function renderProductPriceHistory(productId: number): string {
+  const history = getProductPriceHistory(productId);
+  if (history.length === 0) return "";
+  
+  return `<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-secondary)">
+      <i class="fa-solid fa-clock-rotate-left" style="font-size:11px"></i> Historia cen (${history.length})
+    </div>
+    <div style="max-height:120px;overflow-y:auto;font-size:12px">
+      ${history.slice(0, 10).map((h: any) => {
+        const date = new Date(h.changed_at).toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" });
+        return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
+          <span class="cell-muted">${date}</span>
+          <span class="cell-mono">${formatPrice(h.purchase_price)} zł${h.catalog_price ? ` / kat: ${formatPrice(h.catalog_price)} zł` : ""}</span>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
 
-    closeModal();
-    render();
-    notifySidebarUpdate();
-  };
+function openProductDetail(product?: Product): void {
+  view = "detail";
+  detailId = product?.id ?? null;
+  const isEdit = !!product;
+  
+  render();
+}
 
-  document.getElementById("btn-p-save")!.addEventListener("click", save);
-  document.getElementById("modal-box")!.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") {
-      e.preventDefault();
-      save();
-    }
+function renderDetail(): void {
+  const page = document.getElementById("page-products")!;
+  const product = detailId ? (getProducts({ show_archived: true }).find((p) => p.id === detailId) || getProducts().find((p) => p.id === detailId)) : null;
+  const isEdit = !!product;
+  const sections = getProductSections(product ?? undefined);
+
+  const footerButtons: DPFooterButton[] = [
+    { id: "btn-cancel", label: "Anuluj", style: "secondary", action: "back" },
+    { id: "btn-save", label: isEdit ? "Zapisz" : "Dodaj", style: "primary", action: "save" },
+  ];
+
+  page.innerHTML = `
+    ${dpHeader(isEdit ? "Edytuj produkt" : "Dodaj produkt")}
+    ${dpSections(sections)}
+    ${dpFooter(footerButtons)}
+  `;
+
+  // Bind detail page actions (dpBindActions takes container and handlers object)
+  dpBindActions(page, {
+    back: () => {
+      view = "list";
+      detailId = null;
+      renderList();
+    },
+    save: () => {
+      const data = dpCollect(page, sections);
+      const result = dpValidate(page, sections);
+      
+      if (!result.valid) {
+        // Validation errors are already displayed by dpValidate
+        return;
+      }
+
+      const input: ProductInput = {
+        name: String(data.name || "").trim(),
+        unit: String(data.unit || "szt"),
+        purchase_price: parseFloat(String(data.purchase_price || 0)),
+        catalog_price: parseFloat(String(data.catalog_price || 0)),
+        vat_rate: parseInt(String(data.vat_rate || 23)),
+        category_id: data.category_id ? parseInt(String(data.category_id)) : null,
+        ean: String(data.ean || "").trim(),
+        sku: String(data.sku || "").trim(),
+        supplier: String(data.supplier || "").trim(),
+        min_order: String(data.min_order || "").trim(),
+        notes: String(data.notes || "").trim(),
+      };
+
+      // Check for duplicate names (but skip if editing the same product)
+      if (!isEdit) {
+        const dupName = checkDuplicateName(input.name, getProducts({ show_archived: true }).map(p => p.name));
+        if (dupName && !confirm(`Produkt o podobnej nazwie już istnieje: "${dupName}". Dodać mimo to?`)) return;
+      }
+
+      if (isEdit && product) {
+        updateProduct(product.id, input);
+        showToast("Produkt zaktualizowany");
+      } else {
+        addProduct(input);
+        showToast("Produkt dodany");
+      }
+
+      view = "list";
+      detailId = null;
+      renderList();
+      notifySidebarUpdate();
+    },
   });
+
+  // Focus first field
+  setTimeout(() => dpFocus(page, sections), 80);
 }
 
 // ─── CSV Export ──────────────────────────────────────────────────

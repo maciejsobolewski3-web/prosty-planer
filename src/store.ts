@@ -204,83 +204,19 @@ function seedDefaults(): void {
     { id: nextId(), name: "Inne", color: "#9CA3AF", sort_order: 99 },
   ];
 
-  const cats = db.categories;
-  db.materials = [
-    { id: nextId(), name: "Kabel YDY 3x2.5", unit: "m", price_netto: 4.5, vat_rate: 23, category_id: cats[1].id, supplier: "Elektroskandia", sku: "YDY-3x2.5", url: JSON.stringify([{ label: "Katalog", url: "https://elektroskandia.pl/ydy" }, { label: "Allegro", url: "https://allegro.pl/kabel-ydy" }]), notes: "", is_favorite: true, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Puszka natynkowa PK-1", unit: "szt", price_netto: 2.8, vat_rate: 23, category_id: cats[1].id, supplier: "Ospel", sku: "PK1-N", url: JSON.stringify([{ label: "Producent", url: "https://ospel.com.pl/pk1" }]), notes: "", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Cement CEM I 42.5R (25kg)", unit: "szt", price_netto: 16.5, vat_rate: 23, category_id: cats[0].id, supplier: "Castorama", sku: "", url: "[]", notes: "Worek 25kg", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Rura PEX 16x2.0", unit: "m", price_netto: 3.2, vat_rate: 23, category_id: cats[2].id, supplier: "Wavin", sku: "PEX-16", url: JSON.stringify([{ label: "Wavin.pl", url: "https://wavin.pl/pex16" }]), notes: "", is_favorite: true, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Gładź szpachlowa Knauf (20kg)", unit: "szt", price_netto: 36.0, vat_rate: 23, category_id: cats[3].id, supplier: "Knauf", sku: "K-FINISH", url: "[]", notes: "", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Wyłącznik nadprądowy B16 1P", unit: "szt", price_netto: 12.5, vat_rate: 23, category_id: cats[1].id, supplier: "Hager", sku: "MBN116E", url: JSON.stringify([{ label: "Karta", url: "https://hager.com/mbn116e" }]), notes: "", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Farba lateksowa biała 10L", unit: "szt", price_netto: 89.0, vat_rate: 23, category_id: cats[3].id, supplier: "Leroy Merlin", sku: "FL-10L-W", url: JSON.stringify([{ label: "Sklep", url: "https://leroymerlin.pl/farba" }]), notes: "Wydajność ok. 12m²/L", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  ];
-
   scheduleSave();
 }
 
 function seedLabor(): void {
-  if (db.labor.length > 0) return;
-
-  db.labor = [
-    { id: nextId(), name: "Malowanie ścian", unit: "m2", price_netto: 25, vat_rate: 23, category: "Malowanie", notes: "Emulsja, 2 warstwy", is_favorite: true, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Malowanie sufitów", unit: "m2", price_netto: 30, vat_rate: 23, category: "Malowanie", notes: "Emulsja, 2 warstwy", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Gładzie szpachlowe", unit: "m2", price_netto: 35, vat_rate: 23, category: "Wykończenie", notes: "Z gruntowaniem", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Układanie paneli", unit: "m2", price_netto: 40, vat_rate: 23, category: "Podłogi", notes: "", is_favorite: true, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Montaż gniazdka", unit: "szt", price_netto: 60, vat_rate: 23, category: "Elektryka", notes: "Z podłączeniem", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Montaż punktu oświetleniowego", unit: "szt", price_netto: 80, vat_rate: 23, category: "Elektryka", notes: "", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Montaż baterii umywalkowej", unit: "szt", price_netto: 120, vat_rate: 23, category: "Hydraulika", notes: "", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Układanie płytek", unit: "m2", price_netto: 90, vat_rate: 23, category: "Wykończenie", notes: "Bez fugowania", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: nextId(), name: "Roboczogodzina pomocnika", unit: "godz", price_netto: 35, vat_rate: 23, category: "Ogólne", notes: "", is_favorite: false, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  ];
-
-  scheduleSave();
+  // Clean start — no demo labor data
 }
 
 function seedZlecenia(): void {
-  if (db.zlecenia.length > 0) return;
-
-  const mats = db.materials;
-  const labors = db.labor;
-
-  db.zlecenia = [{
-    id: nextId(),
-    name: "Wykończenie mieszkania ul. Kwiatowa 5",
-    client: "Jan Kowalski",
-    status: "wycena",
-    notes: "Mieszkanie 55m², 2 pokoje + kuchnia + łazienka",
-    markup_materials: 15,
-    markup_labor: 0,
-    date_start: "2026-03-01",
-    date_end: "2026-04-15",
-    items: [
-      { id: nextId(), type: "labor", source_id: labors[0]?.id ?? null, name: "Malowanie ścian", unit: "m2", quantity: 120, price_netto: 25, vat_rate: 23, notes: "" },
-      { id: nextId(), type: "labor", source_id: labors[2]?.id ?? null, name: "Gładzie szpachlowe", unit: "m2", quantity: 120, price_netto: 35, vat_rate: 23, notes: "" },
-      { id: nextId(), type: "material", source_id: mats[6]?.id ?? null, name: "Farba lateksowa biała 10L", unit: "szt", quantity: 5, price_netto: 89, vat_rate: 23, notes: "" },
-      { id: nextId(), type: "labor", source_id: labors[3]?.id ?? null, name: "Układanie paneli", unit: "m2", quantity: 40, price_netto: 40, vat_rate: 23, notes: "" },
-    ],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }];
-
-  scheduleSave();
+  // Clean start — no demo zlecenia
 }
 
 function seedExpenses(): void {
-  if (db.expenses.length > 0) return;
-
-  const now = new Date();
-  const thisMonth = now.toISOString().slice(0, 7);
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 15).toISOString().slice(0, 7);
-
-  db.expenses = [
-    { id: nextId(), name: "Farba Dulux biała 10L x3", amount: 420, category: "materialy", zlecenie_id: null, date: `${thisMonth}-03`, notes: "", created_at: now.toISOString() },
-    { id: nextId(), name: "Paliwo - dojazd na budowę", amount: 180, category: "paliwo", zlecenie_id: null, date: `${thisMonth}-05`, notes: "Kwiatowa 5", created_at: now.toISOString() },
-    { id: nextId(), name: "Wiertarka udarowa Bosch", amount: 650, category: "narzedzia", zlecenie_id: null, date: `${lastMonth}-12`, notes: "", created_at: now.toISOString() },
-    { id: nextId(), name: "Elektryk - podwykonawca", amount: 2800, category: "podwykonawcy", zlecenie_id: null, date: `${lastMonth}-20`, notes: "Instalacja w łazience", created_at: now.toISOString() },
-    { id: nextId(), name: "Papier, tonery, segregatory", amount: 95, category: "biuro", zlecenie_id: null, date: `${thisMonth}-01`, notes: "", created_at: now.toISOString() },
-  ];
-
-  scheduleSave();
+  // Clean start — no demo expenses
 }
 
 // ─── Categories ──────────────────────────────────────────────────

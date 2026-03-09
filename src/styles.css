@@ -575,6 +575,89 @@ body {
 
 .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
+/* ─── Detail Page ────────────────────────────────────────────── */
+.dp-header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 24px; border-bottom: 2px solid var(--border);
+  background: var(--bg-secondary); flex-shrink: 0;
+}
+
+.dp-back-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: none; border: 2px solid var(--border);
+  color: var(--text-secondary); padding: 6px 12px;
+  font-family: var(--font-mono); font-size: 11px;
+  font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; cursor: pointer;
+  transition: all var(--transition);
+}
+.dp-back-btn:hover {
+  border-color: var(--text-primary); color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.dp-back-btn i { font-size: 11px; }
+
+.dp-header-title {
+  font-size: 16px; font-weight: 800; letter-spacing: -0.01em;
+  text-transform: uppercase; color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+.dp-body {
+  flex: 1; padding: 24px; overflow-y: auto;
+}
+
+.dp-section {
+  margin-bottom: 28px; padding: 20px;
+  border: 2px solid var(--border); background: var(--bg-secondary);
+}
+
+.dp-section-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text-muted);
+  margin-bottom: 16px; font-family: var(--font-mono);
+  padding-bottom: 8px; border-bottom: 1px solid var(--border-light);
+}
+
+.dp-section-subtitle {
+  font-size: 12px; color: var(--text-secondary);
+  margin-top: -8px; margin-bottom: 14px;
+}
+
+.dp-field-grid { display: grid; gap: 12px 16px; }
+.dp-field-grid-1 { grid-template-columns: 1fr; }
+.dp-field-grid-2 { grid-template-columns: 1fr 1fr; }
+.dp-field-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+.dp-field-grid .field { margin-bottom: 0; }
+
+.dp-footer {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 16px 24px; border-top: 2px solid var(--border);
+  background: var(--bg-tertiary); flex-shrink: 0;
+}
+
+/* ─── Inline Edit ────────────────────────────────────────────── */
+.inline-edit-input {
+  width: 100%; padding: 2px 6px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent) !important;
+  color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 13px;
+  outline: none;
+}
+
+.inline-editing {
+  padding: 0 !important;
+}
+
+td[data-inline-field] {
+  cursor: pointer; transition: background var(--transition);
+}
+td[data-inline-field]:hover {
+  background: var(--accent-subtle);
+}
+
 /* ─── Links editor in modal ───────────────────────────────────── */
 .links-editor { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 

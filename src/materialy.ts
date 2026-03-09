@@ -27,16 +27,23 @@ import {
   checkDuplicateName,
   type SortState,
 } from "./ui";
+import { dpHeader, dpSections, dpFooter, dpCollect, dpValidate, dpBindActions, dpFocus, type DPSection, type DPFooterButton } from "./detail-page";
+import { dangerModal } from "./danger-modal";
+import { bindInlineEdits } from "./inline-edit";
 
 // ─── Module state ────────────────────────────────────────────────
 let currentFilter: MaterialFilter = {};
 let currentGroupBy: GroupBy = "none";
 let filterCategoryId: number | null = null;
 let filterView: "all" | "favorites" | "archived" = "all";
-let modalLinks: MaterialLink[] = [];
 let matSortState: SortState = { column: "name", dir: "asc" };
 let selectedMaterials: Set<number> = new Set();
 let selectAllChecked = false;
+
+// Detail page state
+let view: "list" | "detail" = "list";
+let detailId: number | null = null;
+let detailLinks: MaterialLink[] = [];
 
 // ─── Public: called from main.ts on filter changes ──────────────
 export function setFilterView(view: "all" | "favorites" | "archived"): void {
@@ -58,6 +65,16 @@ export function setSearch(search: string): void {
   render();
 }
 
+let _sidebarUpdateCb: (() => void) | null = null;
+
+export function onSidebarUpdate(cb: () => void): void {
+  _sidebarUpdateCb = cb;
+}
+
+function notifySidebarUpdate(): void {
+  _sidebarUpdateCb?.();
+}
+
 function rebuildFilter(): void {
   currentFilter = {};
   if (filterView === "favorites") currentFilter.favorites_only = true;
@@ -65,8 +82,17 @@ function rebuildFilter(): void {
   if (filterCategoryId !== null) currentFilter.category_id = filterCategoryId;
 }
 
-// ─── Render ──────────────────────────────────────────────────────
+// ─── Main render dispatcher ──────────────────────────────────────
 function render(): void {
+  if (view === "detail") {
+    renderDetail();
+  } else {
+    renderList();
+  }
+}
+
+// ─── List view ───────────────────────────────────────────────────
+function renderList(): void {
   const page = document.getElementById("page-materialy")!;
   const materials = getMaterials(currentFilter);
   const categories = getCategories();
@@ -91,7 +117,7 @@ function render(): void {
     </button>
     <input type="file" id="csv-file-input" accept=".csv" style="display:none" />
   `;
-  document.getElementById("btn-add-material")!.addEventListener("click", () => openMaterialModal());
+  document.getElementById("btn-add-material")!.addEventListener("click", () => openDetail());
   document.getElementById("btn-import-csv")!.addEventListener("click", () => {
     (document.getElementById("csv-file-input") as HTMLInputElement).click();
   });
@@ -112,7 +138,7 @@ function render(): void {
   if (materials.length === 0) {
     page.innerHTML = renderEmpty();
     const btn = page.querySelector("#btn-empty-add");
-    if (btn) btn.addEventListener("click", () => openMaterialModal());
+    if (btn) btn.addEventListener("click", () => openDetail());
     return;
   }
 
@@ -155,7 +181,7 @@ function bindGroupBar(): void {
   document.querySelectorAll<HTMLButtonElement>(".group-pill").forEach((pill) => {
     pill.addEventListener("click", () => {
       currentGroupBy = pill.dataset.group as GroupBy;
-      render();
+      renderList();
     });
   });
 }
@@ -201,756 +227,719 @@ function groupMaterials(materials: Material[]): MaterialGroup[] {
     map.get(key)!.items.push(m);
   }
 
-  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, "pl"));
+  return Array.from(map.values()).sort((a, b) => {
+    if (currentGroupBy === "category" && a.key === "0" && b.key !== "0") return 1;
+    if (currentGroupBy === "category" && b.key === "0" && a.key !== "0") return -1;
+    return a.label.localeCompare(b.label);
+  });
 }
 
-function renderTable(materials: Material[], _categories: typeof getCategories extends () => infer R ? R : never): string {
-  const groups = groupMaterials(materials);
-  const showGroupHeaders = currentGroupBy !== "none";
-  const colCount = 10;
+function renderTable(materials: Material[], categories: typeof getCategories extends () => infer T ? T : never): string {
+  const sortedMaterials = sortArray(materials, matSortState.column, matSortState.dir, (item, col) => {
+    if (col === 'name') return item.name;
+    if (col === 'category_id') return item.category_id ?? '';
+    if (col === 'supplier') return item.supplier;
+    return '';
+  });
+  const groups = groupMaterials(sortedMaterials);
 
-  let rows = "";
+  let html = `<table class="materials-table"><thead><tr>`;
+  html += `<th style="width:40px"><input type="checkbox" id="select-all" /></th>`;
+  html += renderSortableHeader("name", "Nazwa", matSortState);
+  html += renderSortableHeader("category_id", "Kategoria", matSortState);
+  html += `<th>Cena netto</th>`;
+  html += renderSortableHeader("supplier", "Dostawca", matSortState);
+  html += `<th style="width:80px">Akcje</th>`;
+  html += `</tr></thead><tbody>`;
+
   for (const group of groups) {
-    if (showGroupHeaders) {
-      rows += `<tr class="group-header-row"><td colspan="${colCount}">
-        <div class="group-header-label">
-          ${group.color ? `<span class="sidebar-cat-dot" style="background:${group.color}"></span>` : ""}
-          ${esc(group.label)}
-          <span class="group-header-count">(${group.items.length})</span>
-        </div>
-      </td></tr>`;
+    if (currentGroupBy !== "none") {
+      html += `<tr class="group-header${group.color ? ` group-header-colored" style="--group-color:${group.color}"` : '"'}><td colspan="6"><strong>${group.label}</strong></td></tr>`;
     }
-
-    // Sort items within group
-    const sortedItems = sortArray(group.items, matSortState.column, matSortState.dir, (m, col) => {
-      switch (col) {
-        case "name": return m.name;
-        case "unit": return m.unit;
-        case "price_netto": return m.price_netto;
-        case "brutto": return brutto(m.price_netto, m.vat_rate);
-        case "supplier": return m.supplier;
-        default: return m.name;
-      }
-    });
-
-    for (const m of sortedItems) {
-      const cat = getCategoryById(m.category_id);
-      const links = parseLinks(m.url);
-      const prBrutto = brutto(m.price_netto, m.vat_rate);
-      const isSelected = selectedMaterials.has(m.id);
-
-      rows += `<tr data-id="${m.id}" class="${isSelected ? "selected" : ""}">
-        <td>
-          <input type="checkbox" class="material-checkbox" data-mat-id="${m.id}" ${isSelected ? "checked" : ""} />
-        </td>
-        <td>
-          <span class="cell-fav${m.is_favorite ? " active" : ""}" data-fav="${m.id}">
-            <i class="fa-${m.is_favorite ? "solid" : "regular"} fa-star"></i>
-          </span>
-        </td>
-        <td><strong>${esc(m.name)}</strong></td>
-        <td><span class="cell-unit">${esc(m.unit)}</span></td>
-        <td><span class="cell-mono">${formatPrice(m.price_netto)} zł</span></td>
-        <td>
-          <span class="cell-mono">${formatPrice(prBrutto)} zł</span>
-          <span class="cell-muted">(${m.vat_rate}%)</span>
-        </td>
-        <td>${cat ? `<span class="cell-badge" style="background:${cat.color}22;color:${cat.color}">${esc(cat.name)}</span>` : '<span class="cell-muted">—</span>'}</td>
-        <td><span class="cell-muted">${esc(m.supplier) || "—"}</span></td>
-        <td>${renderLinkChips(links)}</td>
-        <td>
-          <div class="row-actions">
-            <button class="btn-icon" title="Edytuj" data-edit="${m.id}"><i class="fa-solid fa-pen"></i></button>
-            <button class="btn-icon" title="Duplikuj" data-clone="${m.id}"><i class="fa-solid fa-copy"></i></button>
-            <button class="btn-icon" title="Archiwizuj" data-archive="${m.id}"><i class="fa-solid fa-box-archive"></i></button>
-            <button class="btn-icon" title="Usuń" data-delete="${m.id}" style="color:var(--danger)"><i class="fa-solid fa-trash"></i></button>
-          </div>
-        </td>
-      </tr>`;
+    for (const m of group.items) {
+      const catName = categories.find((c) => c.id === m.category_id)?.name ?? "—";
+      const isArchived = m.is_archived ? " archived" : "";
+      html += `
+        <tr class="material-row${isArchived}" data-id="${m.id}">
+          <td><input type="checkbox" class="row-checkbox" value="${m.id}" /></td>
+          <td><a href="#" class="material-name">${esc(m.name)}</a></td>
+          <td>${esc(catName)}</td>
+          <td class="price-cell" data-inline-id="${m.id}" data-inline-field="price_netto">${formatPrice(m.price_netto)}</td>
+          <td>${esc(m.supplier || "—")}</td>
+          <td>
+            <button class="btn-icon edit-mat" title="Edytuj"><i class="fa-solid fa-pencil"></i></button>
+            <button class="btn-icon favorite-mat${m.is_favorite ? " active" : ""}" title="${m.is_favorite ? "Usuń z ulubionych" : "Dodaj do ulubionych"}"><i class="fa-solid fa-star"></i></button>
+            <button class="btn-icon archive-mat" title="${m.is_archived ? "Przywróć" : "Archiwizuj"}"><i class="fa-solid fa-${m.is_archived ? "rotate-left" : "box"}"></i></button>
+          </td>
+        </tr>
+      `;
     }
   }
 
-  return `
-    <div class="table-responsive">
-      <table class="data-table">
-        <thead><tr>
-          <th style="width:30px"><input type="checkbox" id="select-all-checkbox" ${selectAllChecked ? "checked" : ""} /></th>
-          <th style="width:30px"></th>
-          ${renderSortableHeader("Nazwa", "name", matSortState)}
-          ${renderSortableHeader("Jedn.", "unit", matSortState)}
-          ${renderSortableHeader("Netto", "price_netto", matSortState)}
-          ${renderSortableHeader("Brutto", "brutto", matSortState)}
-          <th>Kategoria</th>
-          ${renderSortableHeader("Dostawca", "supplier", matSortState)}
-          <th>Linki</th>
-          <th style="width:100px"></th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
+  html += `</tbody></table>`;
+  return html;
 }
 
-function renderLinkChips(links: MaterialLink[]): string {
-  if (links.length === 0) return '<span class="cell-muted">—</span>';
-  return `<div class="link-chips">${links
-    .map(
-      (l) =>
-        `<a class="link-chip" href="${esc(l.url)}" target="_blank" title="${esc(l.url)}" data-external-link>
-          <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i>
-          ${esc(l.label || extractDomain(l.url))}
-        </a>`
-    )
-    .join("")}</div>`;
-}
-
-// ─── Table events ────────────────────────────────────────────────
-// Sort handler (must be first before other event bindings follow)
-// Added inside the render() method below
 function bindTableEvents(page: HTMLElement): void {
-  // Sort headers
-  bindSortHeaders(page, matSortState, (newState) => {
-    matSortState = newState;
-    render();
-  });
+  bindSortHeaders(page, matSortState, () => renderList());
 
-  // Select all checkbox
-  const selectAllCheckbox = page.querySelector<HTMLInputElement>("#select-all-checkbox");
+  // Checkbox listeners
+  const selectAllCheckbox = page.querySelector<HTMLInputElement>("#select-all");
   if (selectAllCheckbox) {
+    selectAllCheckbox.checked = selectAllChecked;
     selectAllCheckbox.addEventListener("change", () => {
       selectAllChecked = selectAllCheckbox.checked;
-      const allMaterials = getMaterials(currentFilter);
-      if (selectAllChecked) {
-        allMaterials.forEach((m) => selectedMaterials.add(m.id));
-      } else {
-        selectedMaterials.clear();
-      }
-      render();
+      page.querySelectorAll<HTMLInputElement>(".row-checkbox").forEach((cb) => (cb.checked = selectAllChecked));
+      renderBulkActionBar();
     });
   }
 
-  // Individual material checkboxes
-  page.querySelectorAll<HTMLInputElement>(".material-checkbox").forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      const id = parseInt(checkbox.dataset.matId!);
-      if (checkbox.checked) {
-        selectedMaterials.add(id);
-      } else {
-        selectedMaterials.delete(id);
-        selectAllChecked = false;
-      }
-      render();
+  page.querySelectorAll<HTMLInputElement>(".row-checkbox").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      selectedMaterials.clear();
+      page.querySelectorAll<HTMLInputElement>(".row-checkbox:checked").forEach((c) => selectedMaterials.add(parseInt(c.value)));
+      if (selectAllCheckbox) selectAllCheckbox.checked = page.querySelectorAll<HTMLInputElement>(".row-checkbox:checked").length === page.querySelectorAll<HTMLInputElement>(".row-checkbox").length;
+      renderBulkActionBar();
     });
   });
 
-  // Favorite toggle
-  page.querySelectorAll<HTMLElement>("[data-fav]").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      toggleFavorite(parseInt(el.dataset.fav!));
-      render();
-      notifySidebarUpdate();
-    });
-  });
-
-  // Edit
-  page.querySelectorAll<HTMLButtonElement>("[data-edit]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const id = parseInt(btn.dataset.edit!);
-      const mat = getMaterials({ show_archived: true }).find((m) => m.id === id);
-      if (mat) openMaterialModal(mat);
-    });
-  });
-
-  // Archive
-  page.querySelectorAll<HTMLButtonElement>("[data-archive]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      archiveMaterial(parseInt(btn.dataset.archive!));
-      showToast("Materiał zarchiwizowany");
-      render();
-      notifySidebarUpdate();
-    });
-  });
-
-  // Clone/Duplicate
-  page.querySelectorAll<HTMLButtonElement>("[data-clone]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const mat = getMaterials({ show_archived: true }).find((m) => m.id === parseInt(btn.dataset.clone!));
-      if (!mat) return;
-      addMaterial({
-        name: mat.name + " (kopia)",
-        unit: mat.unit,
-        price_netto: mat.price_netto,
-        vat_rate: mat.vat_rate,
-        category_id: mat.category_id,
-        supplier: mat.supplier,
-        sku: mat.sku,
-        url: mat.url,
-        notes: mat.notes,
-      });
-      showToast("Materiał zduplikowany");
-      render();
-      notifySidebarUpdate();
-    });
-  });
-
-  // Delete
-  page.querySelectorAll<HTMLButtonElement>("[data-delete]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (!confirm("Na pewno usunąć ten materiał?")) return;
-      deleteMaterial(parseInt(btn.dataset.delete!));
-      showToast("Materiał usunięty");
-      render();
-      notifySidebarUpdate();
-    });
-  });
-
-  // Double click row to edit
-  page.querySelectorAll<HTMLTableRowElement>("tr[data-id]").forEach((tr) => {
-    tr.addEventListener("dblclick", () => {
-      const id = parseInt(tr.dataset.id!);
-      const mat = getMaterials({ show_archived: true }).find((m) => m.id === id);
-      if (mat) openMaterialModal(mat);
-    });
-  });
-
-  // Prevent link clicks from triggering row events
-  page.querySelectorAll<HTMLElement>("[data-external-link]").forEach((el) => {
-    el.addEventListener("click", (e) => e.stopPropagation());
-  });
-}
-
-// ─── Price history chart ────────────────────────────────────────
-function renderPriceHistoryChart(materialId: number): string {
-  const allHistory = getAllPriceHistory();
-  const history = allHistory
-    .filter(h => h.material_id === materialId)
-    .sort((a, b) => a.changed_at.localeCompare(b.changed_at));
-
-  if (history.length < 2) return "";
-
-  const width = 300;
-  const height = 100;
-  const pad = { top: 8, right: 8, bottom: 20, left: 40 };
-  const cw = width - pad.left - pad.right;
-  const ch = height - pad.top - pad.bottom;
-
-  const values = history.map(h => h.price_netto);
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const range = maxV - minV || 1;
-
-  const scaleX = (i: number) => pad.left + (i / (history.length - 1)) * cw;
-  const scaleY = (v: number) => pad.top + ch - ((v - minV) / range) * ch;
-
-  const pathD = history.map((h, i) => `${i === 0 ? "M" : "L"} ${scaleX(i)} ${scaleY(h.price_netto)}`).join(" ");
-  const dots = history.map((h, i) => {
-    const d = new Date(h.changed_at);
-    const label = d.toLocaleDateString("pl-PL", { day: "numeric", month: "short" });
-    return `<circle cx="${scaleX(i)}" cy="${scaleY(h.price_netto)}" r="3" fill="var(--accent)" stroke="var(--bg-secondary)" stroke-width="1.5">
-      <title>${label}: ${h.price_netto.toFixed(2)} zł</title>
-    </circle>`;
-  }).join("");
-
-  // Y axis labels
-  const yLabels = [minV, (minV + maxV) / 2, maxV].map(v => {
-    return `<text x="${pad.left - 4}" y="${scaleY(v) + 3}" font-size="8" text-anchor="end" fill="var(--text-muted)">${v.toFixed(2)}</text>`;
-  }).join("");
-
-  return `
-    <div style="margin-top:12px">
-      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">
-        <i class="fa-solid fa-chart-line" style="font-size:10px;margin-right:4px"></i> Historia cen
-      </div>
-      <svg viewBox="0 0 ${width} ${height}" style="width:100%;max-width:${width}px;height:auto">
-        <path d="${pathD}" stroke="var(--accent)" stroke-width="1.5" fill="none" stroke-linecap="round" />
-        ${dots}
-        ${yLabels}
-      </svg>
-    </div>
-  `;
-}
-
-// ─── Material modal ──────────────────────────────────────────────
-function openMaterialModal(material?: Material): void {
-  const isEdit = !!material;
-  const categories = getCategories();
-  modalLinks = material ? parseLinks(material.url) : [];
-
-  const catOptions = categories
-    .map((c) => `<option value="${c.id}"${material?.category_id === c.id ? " selected" : ""}>${esc(c.name)}</option>`)
-    .join("");
-
-  openModal(`
-    <h2 class="modal-title">${isEdit ? "Edytuj materiał" : "Dodaj materiał"}</h2>
-
-    <div class="field">
-      <label>Nazwa materiału</label>
-      <input type="text" id="f-name" value="${esc(material?.name ?? "")}" placeholder="np. Kabel YDY 3x2.5" />
-    </div>
-
-    <div class="field-row field-row-3">
-      <div class="field">
-        <label>Cena netto (PLN)</label>
-        <input type="number" step="0.01" id="f-price" value="${material?.price_netto ?? ""}" placeholder="0,00" />
-      </div>
-      <div class="field">
-        <label>Jednostka</label>
-        <select id="f-unit">
-          ${["szt", "m", "m2", "m3", "kg", "l", "opak", "kpl"].map((u) => `<option value="${u}"${material?.unit === u ? " selected" : ""}>${u === "m2" ? "m²" : u === "m3" ? "m³" : u}</option>`).join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label>VAT (%)</label>
-        <select id="f-vat">
-          ${[23, 8, 5, 0].map((v) => `<option value="${v}"${material?.vat_rate === v ? " selected" : ""}>${v}%</option>`).join("")}
-        </select>
-      </div>
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Kategoria</label>
-        <select id="f-category">
-          <option value="">— bez kategorii —</option>
-          ${catOptions}
-        </select>
-      </div>
-      <div class="field">
-        <label>Dostawca</label>
-        <input type="text" id="f-supplier" value="${esc(material?.supplier ?? "")}" placeholder="np. Castorama" />
-      </div>
-    </div>
-
-    <div class="field">
-      <label>SKU / Numer katalogowy</label>
-      <input type="text" id="f-sku" value="${esc(material?.sku ?? "")}" placeholder="opcjonalnie" />
-    </div>
-
-    <div class="field">
-      <label>Linki</label>
-      <div class="field-hint">Produkt, karta katalogowa, oferta, Allegro itp.</div>
-      <div class="links-editor" id="links-editor"></div>
-      <button class="link-add-btn" id="btn-add-link" type="button">
-        <i class="fa-solid fa-plus"></i> Dodaj link
-      </button>
-    </div>
-
-    <div class="field">
-      <label>Notatki</label>
-      <textarea id="f-notes" placeholder="Dodatkowe informacje...">${esc(material?.notes ?? "")}</textarea>
-    </div>
-
-    ${isEdit && material ? renderPriceHistoryChart(material.id) : ""}
-
-    <div class="modal-footer">
-      <button class="btn" id="btn-modal-cancel">Anuluj</button>
-      <button class="btn btn-primary" id="btn-modal-save">${isEdit ? "Zapisz" : "Dodaj"}</button>
-    </div>
-  `);
-
-  renderLinksEditor();
-
-  // Focus
-  setTimeout(() => (document.getElementById("f-name") as HTMLInputElement)?.focus(), 80);
-
-  // Bind
-  document.getElementById("btn-add-link")!.addEventListener("click", () => {
-    modalLinks.push({ label: "", url: "" });
-    renderLinksEditor();
-    const inputs = document.querySelectorAll<HTMLInputElement>(".link-url-input");
-    inputs[inputs.length - 1]?.focus();
-  });
-
-  document.getElementById("btn-modal-cancel")!.addEventListener("click", closeModal);
-
-  document.getElementById("btn-modal-save")!.addEventListener("click", () => {
-    saveMaterialFromModal(material?.id);
-  });
-
-  // Enter to save (not in textarea)
-  document.getElementById("modal-box")!.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") {
+  // Material name click
+  page.querySelectorAll<HTMLAnchorElement>(".material-name").forEach((link) => {
+    link.addEventListener("click", (e) => {
       e.preventDefault();
-      saveMaterialFromModal(material?.id);
+      const row = (e.target as HTMLElement).closest(".material-row") as HTMLElement;
+      const id = parseInt(row.dataset.id!);
+      openDetailForId(id);
+    });
+  });
+
+  // Edit button
+  page.querySelectorAll<HTMLButtonElement>(".edit-mat").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const row = (e.target as HTMLElement).closest(".material-row") as HTMLElement;
+      const id = parseInt(row.dataset.id!);
+      openDetailForId(id);
+    });
+  });
+
+  // Favorite button
+  page.querySelectorAll<HTMLButtonElement>(".favorite-mat").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const row = (e.target as HTMLElement).closest(".material-row") as HTMLElement;
+      const id = parseInt(row.dataset.id!);
+      const material = getMaterials({}).find((m) => m.id === id);
+      if (material) {
+        toggleFavorite(id);
+        renderList();
+      }
+    });
+  });
+
+  // Archive button
+  page.querySelectorAll<HTMLButtonElement>(".archive-mat").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const row = (e.target as HTMLElement).closest(".material-row") as HTMLElement;
+      const id = parseInt(row.dataset.id!);
+      const material = getMaterials({ show_archived: true }).find((m) => m.id === id);
+      if (material) {
+        archiveMaterial(id);
+        renderList();
+      }
+    });
+  });
+
+  // Inline editing on price cells
+  bindInlineEdits(page, '.price-cell', (id: number, field: string, value: string | number) => {
+    const material = getMaterials({ show_archived: true }).find((m) => m.id === id);
+    if (material) {
+      const numValue = typeof value === 'number' ? value : parseFloat(String(value));
+      if (isNaN(numValue)) {
+        showToast("Niepoprawna cena");
+        return;
+      }
+      const updated: MaterialInput = {
+        name: material.name,
+        unit: material.unit,
+        price_netto: numValue,
+        vat_rate: material.vat_rate,
+        category_id: material.category_id,
+        supplier: material.supplier,
+        sku: material.sku,
+        url: material.url,
+        notes: material.notes,
+      };
+      updateMaterial(id, updated);
+      renderList();
+      showToast("Cena zaktualizowana");
     }
   });
+}
+
+function renderBulkActionBar(): string {
+  if (selectedMaterials.size === 0) return "";
+
+  const page = document.getElementById("page-materialy")!;
+  let existing = page.querySelector(".bulk-action-bar");
+  const html = `
+    <div class="bulk-action-bar">
+      <span>${selectedMaterials.size} wybranych</span>
+      <button class="btn btn-secondary" id="btn-bulk-supplier">Zmień dostawcę</button>
+      <button class="btn btn-secondary" id="btn-bulk-price">Zmień ceny (%)</button>
+      <button class="btn btn-secondary" id="btn-bulk-clear">Wyczyść wybór</button>
+    </div>
+  `;
+
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    const table = page.querySelector("table");
+    if (table) table.insertAdjacentHTML("beforebegin", html);
+  }
+
+  document.getElementById("btn-bulk-supplier")?.addEventListener("click", () => openBulkSupplierModal());
+  document.getElementById("btn-bulk-price")?.addEventListener("click", () => openBulkPriceModal());
+  document.getElementById("btn-bulk-clear")?.addEventListener("click", () => {
+    selectedMaterials.clear();
+    selectAllChecked = false;
+    renderList();
+  });
+
+  return html;
+}
+
+function bindBulkActionBar(page: HTMLElement): void {
+  // Rendered on demand in renderBulkActionBar, listeners bound there
+}
+
+// ─── Detail page view ────────────────────────────────────────────
+function getMaterialSections(material?: Material): DPSection[] {
+  const categories = getCategories();
+  const catOptions = [
+    { value: "", label: "— bez kategorii —" },
+    ...categories.map((c) => ({ value: String(c.id), label: c.name })),
+  ];
+
+  const sections: DPSection[] = [
+    {
+      id: "section-general",
+      title: "Podstawowe informacje",
+      columns: 2,
+      fields: [
+        {
+          id: "f-name",
+          name: "name",
+          label: "Nazwa materiału",
+          type: "text",
+          required: true,
+          placeholder: "np. Kabel YDY 3x2.5",
+          value: material?.name ?? "",
+        },
+        {
+          id: "f-category",
+          name: "category_id",
+          label: "Kategoria",
+          type: "select",
+          value: material?.category_id !== null ? String(material?.category_id) : "",
+          options: catOptions,
+        },
+      ],
+    },
+    {
+      id: "section-pricing",
+      title: "Wycena",
+      columns: 3,
+      fields: [
+        {
+          id: "f-price",
+          name: "price_netto",
+          label: "Cena netto (PLN)",
+          type: "number",
+          step: 0.01,
+          placeholder: "0,00",
+          value: material?.price_netto ?? "",
+        },
+        {
+          id: "f-unit",
+          name: "unit",
+          label: "Jednostka",
+          type: "select",
+          value: material?.unit ?? "szt",
+          options: ["szt", "m", "m2", "m3", "kg", "l", "opak", "kpl"].map((u) => ({
+            value: u,
+            label: u === "m2" ? "m²" : u === "m3" ? "m³" : u,
+          })),
+        },
+        {
+          id: "f-vat",
+          name: "vat_rate",
+          label: "VAT (%)",
+          type: "select",
+          value: String(material?.vat_rate ?? 23),
+          options: [23, 8, 5, 0].map((v) => ({ value: String(v), label: v + "%" })),
+        },
+      ],
+    },
+    {
+      id: "section-supplier",
+      title: "Dostawca",
+      columns: 2,
+      fields: [
+        {
+          id: "f-supplier",
+          name: "supplier",
+          label: "Dostawca",
+          type: "text",
+          placeholder: "np. Castorama",
+          value: material?.supplier ?? "",
+        },
+        {
+          id: "f-sku",
+          name: "sku",
+          label: "SKU / Numer katalogowy",
+          type: "text",
+          placeholder: "opcjonalnie",
+          value: material?.sku ?? "",
+        },
+      ],
+    },
+    {
+      id: "section-links",
+      title: "Linki",
+      columns: 1,
+      fields: [],
+      customHtml: `
+        <div class="field-hint" style="margin-bottom:8px">Produkt, karta katalogowa, oferta, Allegro itp.</div>
+        <div class="links-editor" id="links-editor"></div>
+        <button class="link-add-btn" id="btn-add-link" type="button"><i class="fa-solid fa-plus"></i> Dodaj link</button>
+      `,
+    },
+    {
+      id: "section-notes",
+      title: "Notatki",
+      columns: 1,
+      fields: [
+        {
+          id: "f-notes",
+          name: "notes",
+          label: "Notatki",
+          type: "textarea",
+          placeholder: "Dodatkowe informacje...",
+          value: material?.notes ?? "",
+          rows: 3,
+        },
+      ],
+      customHtml: material ? renderPriceHistoryChart(material.id) : "",
+    },
+  ];
+
+  return sections;
+}
+
+function renderDetail(): void {
+  const page = document.getElementById("page-materialy")!;
+  const material = detailId ? getMaterials({ show_archived: true }).find((m) => m.id === detailId) : undefined;
+
+  // Initialize links from material
+  if (material?.url) {
+    detailLinks = parseLinks(material.url);
+  } else {
+    detailLinks = [];
+  }
+
+  const sections = getMaterialSections(material);
+  const isNew = !material;
+  const title = isNew ? "Dodaj materiał" : `Edytuj: ${esc(material!.name)}`;
+
+  const footerButtons: DPFooterButton[] = [
+    { id: "btn-back", label: "Wstecz", action: "back", style: "secondary" as const },
+    ...(material ? [{ id: "btn-delete", label: "Usuń", action: "delete", style: "danger" as const }] : []),
+    { id: "btn-save", label: "Zapisz", action: "save", style: "primary" as const },
+  ];
+
+  page.innerHTML =
+    dpHeader(title, isNew ? "Nowy materiał" : `ID: ${material!.id}`) +
+    dpSections(sections) +
+    dpFooter(footerButtons);
+
+  // Render links editor
+  renderLinksEditor();
+
+  // Bind add link button
+  const addLinkBtn = document.getElementById("btn-add-link");
+  if (addLinkBtn) {
+    addLinkBtn.addEventListener("click", () => {
+      detailLinks.push({ url: "", label: "" });
+      renderLinksEditor();
+      const lastInput = document.querySelector<HTMLInputElement>("#links-editor .link-url:last-child");
+      if (lastInput) setTimeout(() => lastInput.focus(), 50);
+    });
+  }
+
+  // Bind actions
+
+  const handlers: Record<string, (e: Event) => void> = {
+    save: (_e: Event) => saveDetail(),
+    back: (_e: Event) => {
+      view = "list";
+      selectedMaterials.clear();
+      selectAllChecked = false;
+      renderList();
+    },
+  };
+  if (material) {
+    handlers.delete = (_e: Event) => {
+      dangerModal("Usuń materiał", `Czy na pewno chcesz usunąć "${esc(material!.name)}"?`).then((confirmed) => {
+        if (confirmed) {
+          deleteMaterial(material!.id);
+          showToast("Materiał usunięty");
+          view = "list";
+          renderList();
+        }
+      });
+    };
+  }
+  dpBindActions(page, handlers);
+
+  // Auto-focus first field
+  dpFocus(page, sections);
 }
 
 function renderLinksEditor(): void {
-  const container = document.getElementById("links-editor")!;
-  container.innerHTML = modalLinks
-    .map(
-      (link, i) => `
-    <div class="link-row" data-link-idx="${i}">
-      <input class="link-label-input" type="text" placeholder="Etykieta" value="${esc(link.label)}" data-link-label="${i}" />
-      <input class="link-url-input" type="url" placeholder="https://..." value="${esc(link.url)}" data-link-url="${i}" />
-      <button class="link-row-remove" data-link-remove="${i}" title="Usuń">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>
-  `
-    )
-    .join("");
+  const editor = document.getElementById("links-editor");
+  if (!editor) return;
 
-  // Bind input changes
-  container.querySelectorAll<HTMLInputElement>("[data-link-label]").forEach((input) => {
-    input.addEventListener("input", () => {
-      modalLinks[parseInt(input.dataset.linkLabel!)].label = input.value;
+  let html = "";
+  detailLinks.forEach((link, idx) => {
+    html += `
+      <div class="link-item">
+        <input type="text" class="link-url" placeholder="URL..." value="${esc(link.url)}" data-idx="${idx}" />
+        <input type="text" class="link-label" placeholder="Nazwa (opcjonalnie)" value="${esc(link.label)}" data-idx="${idx}" />
+        <button class="btn-icon link-remove" type="button" data-idx="${idx}"><i class="fa-solid fa-trash"></i></button>
+      </div>
+    `;
+  });
+  editor.innerHTML = html;
+
+  // Bind link inputs
+  editor.querySelectorAll<HTMLInputElement>(".link-url").forEach((input) => {
+    input.addEventListener("change", () => {
+      const idx = parseInt(input.dataset.idx!);
+      detailLinks[idx].url = input.value.trim();
     });
   });
 
-  container.querySelectorAll<HTMLInputElement>("[data-link-url]").forEach((input) => {
-    input.addEventListener("input", () => {
-      modalLinks[parseInt(input.dataset.linkUrl!)].url = input.value;
+  editor.querySelectorAll<HTMLInputElement>(".link-label").forEach((input) => {
+    input.addEventListener("change", () => {
+      const idx = parseInt(input.dataset.idx!);
+      detailLinks[idx].label = input.value.trim();
     });
   });
 
-  container.querySelectorAll<HTMLButtonElement>("[data-link-remove]").forEach((btn) => {
+  editor.querySelectorAll<HTMLButtonElement>(".link-remove").forEach((btn) => {
     btn.addEventListener("click", () => {
-      modalLinks.splice(parseInt(btn.dataset.linkRemove!), 1);
+      const idx = parseInt(btn.dataset.idx!);
+      detailLinks.splice(idx, 1);
       renderLinksEditor();
     });
   });
 }
 
-function saveMaterialFromModal(editId?: number): void {
-  const name = (document.getElementById("f-name") as HTMLInputElement).value.trim();
-  if (!name) {
-    (document.getElementById("f-name") as HTMLInputElement).focus();
+function saveDetail(): void {
+  const page = document.getElementById("page-materialy")!;
+  const sections = getMaterialSections(detailId ? getMaterials({ show_archived: true }).find((m) => m.id === detailId) : undefined);
+
+  // Collect form data
+  const data = dpCollect(page, sections);
+
+  // Validate
+  const validation = dpValidate(page, sections);
+  if (!validation.valid) {
+    showToast(validation.errors[0] ?? "Błąd walidacji");
     return;
   }
 
-  const cleanLinks = modalLinks.filter((l) => l.url.trim());
+  // Clean links
+  const cleanLinks = detailLinks.filter((l) => l.url.trim());
   for (const l of cleanLinks) {
     if (!l.label.trim()) l.label = extractDomain(l.url);
   }
 
+  // Build input
   const input: MaterialInput = {
-    name,
-    unit: (document.getElementById("f-unit") as HTMLSelectElement).value,
-    price_netto: parseFloat((document.getElementById("f-price") as HTMLInputElement).value) || 0,
-    vat_rate: parseInt((document.getElementById("f-vat") as HTMLSelectElement).value),
-    category_id: (document.getElementById("f-category") as HTMLSelectElement).value
-      ? parseInt((document.getElementById("f-category") as HTMLSelectElement).value)
-      : null,
-    supplier: (document.getElementById("f-supplier") as HTMLInputElement).value.trim(),
-    sku: (document.getElementById("f-sku") as HTMLInputElement).value.trim(),
+    name: String(data.name).trim(),
+    unit: String(data.unit),
+    price_netto: data.price_netto ? parseFloat(String(data.price_netto)) : 0,
+    vat_rate: data.vat_rate ? parseInt(String(data.vat_rate)) : 23,
+    category_id: data.category_id ? parseInt(String(data.category_id)) : null,
+    supplier: String(data.supplier || "").trim(),
+    sku: String(data.sku || "").trim(),
     url: JSON.stringify(cleanLinks),
-    notes: (document.getElementById("f-notes") as HTMLTextAreaElement).value.trim(),
+    notes: String(data.notes || "").trim(),
   };
 
-  // Check for duplicate names (but skip if editing the same material)
-  if (!editId) {
-    const dupName = checkDuplicateName(input.name, getMaterials({ show_archived: true }).map(m => m.name));
-    if (dupName && !confirm(`Materiał o podobnej nazwie już istnieje: "${dupName}". Dodać mimo to?`)) return;
+  // Check duplicates for new materials
+  if (!detailId) {
+    const dupName = checkDuplicateName(
+      input.name,
+      getMaterials({ show_archived: true }).map((m) => m.name)
+    );
+    if (dupName && !confirm(`Materiał o podobnej nazwie: "${dupName}". Dodać mimo to?`)) {
+      return;
+    }
   }
 
-  if (editId) {
-    updateMaterial(editId, input);
-    showToast("Materiał zaktualizowany");
-  } else {
-    addMaterial(input);
-    showToast("Materiał dodany");
+  try {
+    if (detailId) {
+      updateMaterial(detailId, input);
+      showToast("Materiał zaktualizowany");
+    } else {
+      addMaterial(input);
+      showToast("Materiał dodany");
+    }
+    view = "list";
+    detailId = null;
+    detailLinks = [];
+    renderList();
+  } catch (err) {
+    showToast("Błąd podczas zapisywania");
+    console.error(err);
   }
+}
 
-  closeModal();
+function openDetail(): void {
+  view = "detail";
+  detailId = null;
+  detailLinks = [];
   render();
-  notifySidebarUpdate();
 }
 
-// ─── Sidebar update callback (set by main.ts) ───────────────────
-let _sidebarUpdateCb: (() => void) | null = null;
-
-export function onSidebarUpdate(cb: () => void): void {
-  _sidebarUpdateCb = cb;
+function openDetailForId(id: number): void {
+  view = "detail";
+  detailId = id;
+  render();
 }
 
-function notifySidebarUpdate(): void {
-  _sidebarUpdateCb?.();
-}
+// ─── Price history chart ────────────────────────────────────────
+function renderPriceHistoryChart(materialId: number): string {
+  const history = getAllPriceHistory().filter((h) => h.material_id === materialId);
 
-// ─── Bulk action bar ─────────────────────────────────────────────
-function renderBulkActionBar(): string {
-  if (selectedMaterials.size === 0) return "";
-
-  return `
-    <div class="bulk-action-bar">
-      <span class="bulk-action-count">Zaznaczono: ${selectedMaterials.size}</span>
-      <div class="bulk-action-buttons">
-        <button class="btn btn-sm" id="btn-bulk-supplier">Zmień dostawcę</button>
-        <button class="btn btn-sm" id="btn-bulk-price">Zmień cenę %</button>
-        <button class="btn btn-sm btn-danger" id="btn-bulk-archive">Archiwizuj</button>
-      </div>
-    </div>
-  `;
-}
-
-function bindBulkActionBar(page: HTMLElement): void {
-  const btnSupplier = page.querySelector<HTMLButtonElement>("#btn-bulk-supplier");
-  const btnPrice = page.querySelector<HTMLButtonElement>("#btn-bulk-price");
-  const btnArchive = page.querySelector<HTMLButtonElement>("#btn-bulk-archive");
-
-  if (btnSupplier) {
-    btnSupplier.addEventListener("click", openBulkSupplierModal);
+  if (history.length === 0) {
+    return `<div class="price-history-empty" style="margin-top:20px;padding:12px;background:#f5f5f5;border-radius:4px;color:#666;font-size:14px;">Brak historii zmian ceny</div>`;
   }
 
-  if (btnPrice) {
-    btnPrice.addEventListener("click", openBulkPriceModal);
+  const sorted = history.sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime());
+  const recent = sorted.slice(0, 20);
+
+  let html = `<div class="price-history-section" style="margin-top:20px;">
+    <h4 style="margin-bottom:12px;font-size:14px;">Historia cen (ostatnie 20)</h4>
+    <div class="price-history-chart" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">`;
+
+  for (const entry of recent.reverse()) {
+    const date = new Date(entry.changed_at);
+    const dateStr = `${date.getDate().toString().padStart(2, "0")}.${(date.getMonth() + 1).toString().padStart(2, "0")}`;
+    html += `<div style="font-size:12px;padding:8px;background:#f9f9f9;border-radius:3px;text-align:center;">
+      <div style="font-weight:bold;">${formatPrice(entry.price_netto)}</div>
+      <div style="color:#999;">${dateStr}</div>
+    </div>`;
   }
 
-  if (btnArchive) {
-    btnArchive.addEventListener("click", () => {
-      if (!confirm(`Na pewno archiwizować ${selectedMaterials.size} materiałów?`)) return;
-      selectedMaterials.forEach((id) => archiveMaterial(id));
-      showToast(`Zarchiwizowano ${selectedMaterials.size} materiałów`);
-      selectedMaterials.clear();
-      selectAllChecked = false;
-      render();
-      notifySidebarUpdate();
-    });
-  }
+  html += `</div></div>`;
+  return html;
 }
 
+// ─── Bulk modals ────────────────────────────────────────────────
 function openBulkSupplierModal(): void {
+  if (selectedMaterials.size === 0) {
+    showToast("Nie wybrano materiałów");
+    return;
+  }
+
   openModal(`
     <h2 class="modal-title">Zmień dostawcę (${selectedMaterials.size} materiałów)</h2>
-
     <div class="field">
       <label>Dostawca</label>
       <input type="text" id="bulk-supplier-input" placeholder="np. Castorama" />
     </div>
-
     <div class="modal-footer">
       <button class="btn" id="btn-modal-cancel">Anuluj</button>
       <button class="btn btn-primary" id="btn-modal-save">Zastosuj</button>
     </div>
   `);
 
-  setTimeout(() => (document.getElementById("bulk-supplier-input") as HTMLInputElement)?.focus(), 80);
+  setTimeout(() => {
+    const input = document.getElementById("bulk-supplier-input") as HTMLInputElement;
+    if (input) input.focus();
+  }, 80);
 
-  document.getElementById("btn-modal-cancel")!.addEventListener("click", closeModal);
-  document.getElementById("btn-modal-save")!.addEventListener("click", () => {
-    const supplier = (document.getElementById("bulk-supplier-input") as HTMLInputElement).value.trim();
-    const allMaterials = getMaterials({ show_archived: true });
-    let count = 0;
-
-    selectedMaterials.forEach((id) => {
-      const mat = allMaterials.find((m) => m.id === id);
-      if (mat) {
-        updateMaterial(id, { ...mat, supplier });
-        count++;
-      }
-    });
-
-    showToast(`Zmieniono dostawcę dla ${count} materiałów`);
+  document.getElementById("btn-modal-cancel")!.addEventListener("click", () => {
     closeModal();
+  });
+
+  document.getElementById("btn-modal-save")!.addEventListener("click", () => {
+    const input = document.getElementById("bulk-supplier-input") as HTMLInputElement;
+    const supplier = input.value.trim();
+
+    if (!supplier) {
+      showToast("Podaj dostawcę");
+      return;
+    }
+
+    const materials = getMaterials({ show_archived: true });
+    for (const id of selectedMaterials) {
+      const material = materials.find((m) => m.id === id);
+      if (material) {
+        const updated: MaterialInput = {
+          name: material.name,
+          unit: material.unit,
+          price_netto: material.price_netto,
+          vat_rate: material.vat_rate,
+          category_id: material.category_id,
+          supplier,
+          sku: material.sku,
+          url: material.url,
+          notes: material.notes,
+        };
+        updateMaterial(id, updated);
+      }
+    }
+
+    closeModal();
+    showToast(`Dostawca zaktualizowany dla ${selectedMaterials.size} materiałów`);
     selectedMaterials.clear();
     selectAllChecked = false;
-    render();
-    notifySidebarUpdate();
+    renderList();
   });
 }
 
 function openBulkPriceModal(): void {
+  if (selectedMaterials.size === 0) {
+    showToast("Nie wybrano materiałów");
+    return;
+  }
+
   openModal(`
-    <h2 class="modal-title">Zmień cenę % (${selectedMaterials.size} materiałów)</h2>
-
+    <h2 class="modal-title">Zmień ceny (${selectedMaterials.size} materiałów)</h2>
     <div class="field">
-      <label>Zmiana ceny (%)</label>
-      <div class="field-hint">Wartość dodatnia zwiększa cenę, ujemna zmniejsza</div>
-      <input type="number" step="0.01" id="bulk-price-input" placeholder="np. 10 lub -5" />
+      <label>Zmiana procentowa</label>
+      <input type="number" id="bulk-price-input" placeholder="np. 10 (dla +10%) lub -5 (dla -5%)" step="0.1" />
     </div>
-
     <div class="modal-footer">
       <button class="btn" id="btn-modal-cancel">Anuluj</button>
       <button class="btn btn-primary" id="btn-modal-save">Zastosuj</button>
     </div>
   `);
 
-  setTimeout(() => (document.getElementById("bulk-price-input") as HTMLInputElement)?.focus(), 80);
+  setTimeout(() => {
+    const input = document.getElementById("bulk-price-input") as HTMLInputElement;
+    if (input) input.focus();
+  }, 80);
 
-  document.getElementById("btn-modal-cancel")!.addEventListener("click", closeModal);
+  document.getElementById("btn-modal-cancel")!.addEventListener("click", () => {
+    closeModal();
+  });
+
   document.getElementById("btn-modal-save")!.addEventListener("click", () => {
-    const percentStr = (document.getElementById("bulk-price-input") as HTMLInputElement).value.trim();
-    const percent = parseFloat(percentStr);
+    const input = document.getElementById("bulk-price-input") as HTMLInputElement;
+    const percentStr = input.value.trim();
 
-    if (isNaN(percent)) {
-      (document.getElementById("bulk-price-input") as HTMLInputElement).focus();
+    if (!percentStr) {
+      showToast("Podaj zmianę procentową");
       return;
     }
 
-    const allMaterials = getMaterials({ show_archived: true });
+    const percent = parseFloat(percentStr);
+    if (isNaN(percent)) {
+      showToast("Niepoprawny procent");
+      return;
+    }
+
+    const materials = getMaterials({ show_archived: true });
+    const multiplier = 1 + percent / 100;
     let count = 0;
 
-    selectedMaterials.forEach((id) => {
-      const mat = allMaterials.find((m) => m.id === id);
-      if (mat) {
-        const multiplier = 1 + percent / 100;
-        const newPrice = Math.max(0, mat.price_netto * multiplier);
-        updateMaterial(id, { ...mat, price_netto: newPrice });
+    for (const id of selectedMaterials) {
+      const material = materials.find((m) => m.id === id);
+      if (material) {
+        const newPrice = Math.round(material.price_netto * multiplier * 100) / 100;
+        const updated: MaterialInput = {
+          name: material.name,
+          unit: material.unit,
+          price_netto: newPrice,
+          vat_rate: material.vat_rate,
+          category_id: material.category_id,
+          supplier: material.supplier,
+          sku: material.sku,
+          url: material.url,
+          notes: material.notes,
+        };
+        updateMaterial(id, updated);
         count++;
       }
-    });
+    }
 
-    showToast(`Zmieniono cenę dla ${count} materiałów`);
     closeModal();
+    showToast(`Ceny zmienione dla ${count} materiałów`);
     selectedMaterials.clear();
     selectAllChecked = false;
-    render();
-    notifySidebarUpdate();
+    renderList();
   });
 }
 
-// ─── CSV Import ──────────────────────────────────────────────────
-function detectSeparator(csvText: string): string {
-  const firstLine = csvText.split("\n")[0];
-  const semiCount = (firstLine.match(/;/g) || []).length;
-  const commaCount = (firstLine.match(/,/g) || []).length;
-  const tabCount = (firstLine.match(/\t/g) || []).length;
-
-  if (tabCount > 0 && tabCount >= semiCount && tabCount >= commaCount) return "\t";
-  if (semiCount > 0 && semiCount >= commaCount) return ";";
-  return ",";
-}
-
-function parseCSVLine(line: string, separator: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === separator && !inQuotes) {
-      result.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-
-  result.push(current.trim());
-  return result;
-}
-
-function importMaterialsFromCSV(csvText: string): void {
-  const separator = detectSeparator(csvText);
-  const lines = csvText.trim().split("\n");
-
+// ─── CSV import ──────────────────────────────────────────────────
+function importMaterialsFromCSV(csv: string): void {
+  const lines = csv.trim().split("\n");
   if (lines.length < 2) {
     showToast("Plik CSV jest pusty");
     return;
   }
 
-  const headerLine = lines[0];
-  const headers = parseCSVLine(headerLine, separator).map((h) => h.toLowerCase());
+  const headers = lines[0].toLowerCase().split(",").map((h) => h.trim());
+  const nameIdx = headers.indexOf("nazwa");
+  const priceIdx = headers.indexOf("cena");
+  const unitIdx = headers.indexOf("jednostka");
+  const supplierIdx = headers.indexOf("dostawca");
 
-  const nameIdx = headers.findIndex(
-    (h) => h === "nazwa" || h === "name" || h === "materiał" || h === "material"
-  );
-  const unitIdx = headers.findIndex(
-    (h) => h === "jednostka" || h === "unit" || h === "jedn."
-  );
-  const priceIdx = headers.findIndex(
-    (h) =>
-      h === "cena" ||
-      h === "price" ||
-      h === "cena netto" ||
-      h === "price_netto" ||
-      h === "netto"
-  );
-  const vatIdx = headers.findIndex(
-    (h) =>
-      h === "vat" ||
-      h === "stawka" ||
-      h === "vat_rate" ||
-      h === "stawka vat" ||
-      h === "vat (%)"
-  );
-  const supplierIdx = headers.findIndex(
-    (h) => h === "dostawca" || h === "supplier" || h === "producent"
-  );
-  const skuIdx = headers.findIndex((h) => h === "sku" || h === "kod" || h === "kod_produktu");
-  const categoryIdx = headers.findIndex(
-    (h) => h === "kategoria" || h === "category" || h === "cat"
-  );
+  if (nameIdx === -1) {
+    showToast('Brakuje kolumny "nazwa"');
+    return;
+  }
 
-  let imported = 0;
-  const errors: string[] = [];
-
+  let added = 0;
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+    const cols = lines[i].split(",").map((c) => c.trim());
+    if (cols.length < nameIdx + 1 || !cols[nameIdx]) continue;
 
-    try {
-      const values = parseCSVLine(line, separator);
+    const input: MaterialInput = {
+      name: cols[nameIdx],
+      price_netto: priceIdx !== -1 ? parseFloat(cols[priceIdx]) || 0 : 0,
+      unit: unitIdx !== -1 ? cols[unitIdx] || "szt" : "szt",
+      supplier: supplierIdx !== -1 ? cols[supplierIdx] || "" : "",
+      vat_rate: 23,
+      category_id: null,
+      sku: "",
+      url: "[]",
+      notes: "",
+    };
 
-      if (nameIdx === -1 || !values[nameIdx]) {
-        errors.push(`Wiersz ${i + 1}: brak nazwy materiału`);
-        continue;
-      }
-
-      const name = values[nameIdx];
-      const unit = unitIdx !== -1 ? values[unitIdx] || "szt" : "szt";
-      const priceStr = priceIdx !== -1 ? values[priceIdx] : "0";
-      const price_netto = parseFloat(priceStr.replace(",", ".")) || 0;
-      const vatStr = vatIdx !== -1 ? values[vatIdx] : "23";
-      const vat_rate = parseInt(vatStr) || 23;
-      const supplier = supplierIdx !== -1 ? values[supplierIdx] || "" : "";
-      const sku = skuIdx !== -1 ? values[skuIdx] || "" : "";
-
-      let category_id: number | null = null;
-      if (categoryIdx !== -1) {
-        const catName = values[categoryIdx];
-        const cat = getCategories().find(
-          (c) => c.name.toLowerCase() === catName.toLowerCase()
-        );
-        if (cat) category_id = cat.id;
-      }
-
-      addMaterial({
-        name,
-        unit,
-        price_netto,
-        vat_rate,
-        category_id,
-        supplier,
-        sku,
-        url: "",
-        notes: "",
-      });
-
-      imported++;
-    } catch (err) {
-      errors.push(`Wiersz ${i + 1}: błąd parsowania`);
-    }
+    addMaterial(input);
+    added++;
   }
 
-  let msg = `Zaimportowano ${imported} materiałów`;
-  if (errors.length > 0) {
-    msg += ` (${errors.length} błędów)`;
-  }
-
-  showToast(msg);
-  selectedMaterials.clear();
-  selectAllChecked = false;
-  render();
-  notifySidebarUpdate();
+  showToast(`Zaimportowano ${added} materiałów`);
+  renderList();
 }
 
-// ─── Init ────────────────────────────────────────────────────────
+// ─── Public init ─────────────────────────────────────────────────
 export function initMaterialy(): void {
-  render();
+  const page = document.getElementById("page-materialy");
+  if (!page) return;
+
+  // Initialize state
+  view = "list";
+  detailId = null;
+  detailLinks = [];
+  selectedMaterials.clear();
+  selectAllChecked = false;
+
+  renderList();
 }

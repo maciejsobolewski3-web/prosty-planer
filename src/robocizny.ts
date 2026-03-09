@@ -12,18 +12,31 @@ import {
 } from "./store";
 import {
   esc,
-  openModal,
-  closeModal,
   showToast,
   formatPrice,
   brutto,
 } from "./ui";
+import {
+  dpHeader,
+  dpSections,
+  dpFooter,
+  dpCollect,
+  dpValidate,
+  dpBindActions,
+  dpFocus,
+  type DPSection,
+  type DPFooterButton,
+} from "./detail-page";
+import { dangerModal } from "./danger-modal";
+import { bindInlineEdits } from "./inline-edit";
 
 // ─── State ───────────────────────────────────────────────────────
 let currentFilter: LaborFilter = {};
 let currentGroupBy: "none" | "category" | "unit" = "none";
 let filterView: "all" | "favorites" | "archived" = "all";
 let filterCategory: string | null = null;
+let view: "list" | "detail" = "list";
+let detailId: number | null = null;
 
 // ─── Public API ──────────────────────────────────────────────────
 export function setLaborSearch(search: string): void {
@@ -31,8 +44,114 @@ export function setLaborSearch(search: string): void {
   render();
 }
 
-// ─── Render ──────────────────────────────────────────────────────
+// ─── Detail Page Sections ────────────────────────────────────────
+function getLaborSections(labor?: Labor): DPSection[] {
+  const existingCats = getLaborCategories();
+  return [
+    {
+      id: "section-general",
+      title: "Podstawowe informacje",
+      columns: 2,
+      fields: [
+        {
+          id: "f-l-name",
+          name: "name",
+          label: "Nazwa usługi",
+          type: "text",
+          required: true,
+          placeholder: "np. Malowanie ścian",
+          value: labor?.name ?? "",
+        },
+        {
+          id: "f-l-category",
+          name: "category",
+          label: "Kategoria",
+          type: "datalist",
+          placeholder: "np. Malowanie, Elektryka",
+          value: labor?.category ?? "",
+          hint: "Wpisz istniejącą lub nową kategorię",
+          options: existingCats.map((c) => ({ value: c, label: c })),
+        },
+      ],
+    },
+    {
+      id: "section-pricing",
+      title: "Wycena",
+      columns: 3,
+      fields: [
+        {
+          id: "f-l-price",
+          name: "price_netto",
+          label: "Cena netto (PLN)",
+          type: "number",
+          step: 0.01,
+          placeholder: "0,00",
+          value: labor?.price_netto ?? "",
+        },
+        {
+          id: "f-l-unit",
+          name: "unit",
+          label: "Jednostka",
+          type: "select",
+          value: labor?.unit ?? "m2",
+          options: [
+            "m2",
+            "m",
+            "mb",
+            "m3",
+            "szt",
+            "kpl",
+            "godz",
+            "opak",
+            "kg",
+          ].map((u) => ({
+            value: u,
+            label: u === "m2" ? "m²" : u === "m3" ? "m³" : u,
+          })),
+        },
+        {
+          id: "f-l-vat",
+          name: "vat_rate",
+          label: "VAT (%)",
+          type: "select",
+          value: String(labor?.vat_rate ?? 23),
+          options: [23, 8, 5, 0].map((v) => ({
+            value: String(v),
+            label: v + "%",
+          })),
+        },
+      ],
+    },
+    {
+      id: "section-notes",
+      title: "Notatki",
+      columns: 1,
+      fields: [
+        {
+          id: "f-l-notes",
+          name: "notes",
+          label: "Notatki",
+          type: "textarea",
+          placeholder: "Dodatkowe informacje...",
+          value: labor?.notes ?? "",
+          rows: 3,
+        },
+      ],
+    },
+  ];
+}
+
+// ─── Main Render ─────────────────────────────────────────────────
 function render(): void {
+  if (view === "detail") {
+    renderDetail();
+  } else {
+    renderList();
+  }
+}
+
+// ─── List View ───────────────────────────────────────────────────
+function renderList(): void {
   const page = document.getElementById("page-robocizny")!;
 
   // rebuild filter
@@ -55,7 +174,11 @@ function render(): void {
       <i class="fa-solid fa-plus"></i> Dodaj robociznę
     </button>
   `;
-  document.getElementById("btn-add-labor")!.addEventListener("click", () => openLaborModal());
+  document.getElementById("btn-add-labor")!.addEventListener("click", () => {
+    detailId = null;
+    view = "detail";
+    render();
+  });
 
   if (items.length === 0) {
     page.innerHTML = `
@@ -68,14 +191,118 @@ function render(): void {
         </button>
       </div>
     `;
-    page.querySelector("#btn-empty-add-labor")!.addEventListener("click", () => openLaborModal());
+    page.querySelector("#btn-empty-add-labor")!.addEventListener("click", () => {
+      detailId = null;
+      view = "detail";
+      render();
+    });
     return;
   }
 
-  page.innerHTML = renderViewFilters() + renderGroupBar() + renderTable(items);
+  page.innerHTML =
+    renderViewFilters() + renderGroupBar() + renderTable(items);
   bindViewFilters(page);
   bindGroupBar();
   bindTableEvents(page);
+  
+  // Bind inline editing for price column
+  bindInlineEdits(page, "[data-inline-field]", (id, field, value) => {
+    const item = getLabor({ show_archived: true }).find((l) => l.id === id);
+    if (!item) return;
+    // Convert value to string first if it's a number, then to number
+    const numValue = parseFloat(String(value)) || 0;
+    updateLabor(id, { ...item, [field]: numValue });
+    showToast("Zaktualizowano");
+    render();
+  }, {
+    price_netto: { type: "number", step: 0.01, min: 0 },
+  });
+}
+
+// ─── Detail View ─────────────────────────────────────────────────
+function renderDetail(): void {
+  const page = document.getElementById("page-robocizny")!;
+  const labor =
+    detailId !== null
+      ? getLabor({ show_archived: true }).find((l) => l.id === detailId)
+      : null;
+  const title = labor ? "Edytuj robociznę" : "Dodaj robociznę";
+  const sections = getLaborSections(labor ?? undefined);
+
+  document.getElementById("topbar-title")!.textContent = title;
+  document.getElementById("topbar-actions")!.innerHTML = "";
+
+  const footerButtons: DPFooterButton[] = [
+    { id: "btn-back", label: "Wróć", style: "secondary", action: "back" },
+    ...(labor
+      ? [
+          {
+            id: "btn-delete",
+            label: "Usuń",
+            style: "danger" as const,
+            action: "delete",
+            icon: "fa-solid fa-trash",
+          },
+        ]
+      : []),
+    {
+      id: "btn-save",
+      label: labor ? "Zapisz" : "Dodaj",
+      style: "primary" as const,
+      action: "save",
+      icon: "fa-solid fa-check",
+    },
+  ];
+
+  page.innerHTML =
+    dpHeader(title) + dpSections(sections) + dpFooter(footerButtons);
+
+  dpBindActions(page, {
+    back: () => {
+      view = "list";
+      render();
+    },
+    save: () => {
+      const result = dpValidate(page, sections);
+      if (!result.valid) return;
+      const data = dpCollect(page, sections);
+
+      const input: LaborInput = {
+        name: data.name,
+        unit: data.unit,
+        price_netto: parseFloat(data.price_netto) || 0,
+        vat_rate: parseInt(data.vat_rate),
+        category: data.category || "Ogólne",
+        notes: data.notes,
+      };
+
+      if (labor) {
+        updateLabor(labor.id, input);
+        showToast("Robocizna zaktualizowana");
+      } else {
+        addLabor(input);
+        showToast("Robocizna dodana");
+      }
+      view = "list";
+      render();
+    },
+    delete: async () => {
+      if (!labor) return;
+      if (
+        await dangerModal(
+          "Usunąć robociznę?",
+          `Na pewno usunąć "${labor.name}"?`
+        )
+      ) {
+        deleteLabor(labor.id);
+        showToast("Robocizna usunięta");
+        view = "list";
+        render();
+      }
+    },
+  });
+
+  dpFocus(page, sections);
 }
 
 // ─── View filters (all / favorites / archived / category) ────────
@@ -83,7 +310,9 @@ function renderViewFilters(): string {
   const cats = getLaborCategories();
   const allItems = getLabor({});
   const favCount = allItems.filter((l) => l.is_favorite).length;
-  const archCount = getLabor({ show_archived: true }).filter((l) => l.is_archived).length;
+  const archCount = getLabor({ show_archived: true }).filter(
+    (l) => l.is_archived
+  ).length;
 
   let html = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">`;
   html += `<button class="group-pill${filterView === "all" && !filterCategory ? " active" : ""}" data-lview="all">Wszystkie (${allItems.length})</button>`;
@@ -127,18 +356,25 @@ function renderGroupBar(): string {
   return `
     <div class="group-bar">
       <span class="group-bar-label">Grupuj:</span>
-      ${pills.map((p) => `<button class="group-pill${currentGroupBy === p.key ? " active" : ""}" data-lgroup="${p.key}">${p.label}</button>`).join("")}
+      ${pills
+        .map(
+          (p) =>
+            `<button class="group-pill${currentGroupBy === p.key ? " active" : ""}" data-lgroup="${p.key}">${p.label}</button>`
+        )
+        .join("")}
     </div>
   `;
 }
 
 function bindGroupBar(): void {
-  document.querySelectorAll<HTMLButtonElement>("[data-lgroup]").forEach((pill) => {
-    pill.addEventListener("click", () => {
-      currentGroupBy = pill.dataset.lgroup as "none" | "category" | "unit";
-      render();
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-lgroup]")
+    .forEach((pill) => {
+      pill.addEventListener("click", () => {
+        currentGroupBy = pill.dataset.lgroup as "none" | "category" | "unit";
+        render();
+      });
     });
-  });
 }
 
 // ─── Table ───────────────────────────────────────────────────────
@@ -169,7 +405,9 @@ function groupItems(items: Labor[]): LaborGroup[] {
     map.get(key)!.items.push(l);
   }
 
-  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, "pl"));
+  return [...map.values()].sort((a, b) =>
+    a.label.localeCompare(b.label, "pl")
+  );
 }
 
 function renderTable(items: Labor[]): string {
@@ -198,7 +436,7 @@ function renderTable(items: Labor[]): string {
         </td>
         <td><strong>${esc(l.name)}</strong></td>
         <td><span class="cell-unit">${esc(l.unit === "m2" ? "m²" : l.unit === "m3" ? "m³" : l.unit)}</span></td>
-        <td><span class="cell-mono">${formatPrice(l.price_netto)} zł</span></td>
+        <td data-inline-id="${l.id}" data-inline-field="price_netto"><span class="cell-mono">${formatPrice(l.price_netto)} zł</span></td>
         <td>
           <span class="cell-mono">${formatPrice(prBrutto)} zł</span>
           <span class="cell-muted">(${l.vat_rate}%)</span>
@@ -250,8 +488,9 @@ function bindTableEvents(page: HTMLElement): void {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.ledit!);
-      const item = getLabor({ show_archived: true }).find((l) => l.id === id);
-      if (item) openLaborModal(item);
+      detailId = id;
+      view = "detail";
+      render();
     });
   });
 
@@ -268,7 +507,9 @@ function bindTableEvents(page: HTMLElement): void {
   page.querySelectorAll<HTMLButtonElement>("[data-lclone]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const item = getLabor({ show_archived: true }).find((l) => l.id === parseInt(btn.dataset.lclone!));
+      const item = getLabor({ show_archived: true }).find(
+        (l) => l.id === parseInt(btn.dataset.lclone!)
+      );
       if (!item) return;
       addLabor({
         name: item.name + " (kopia)",
@@ -284,121 +525,27 @@ function bindTableEvents(page: HTMLElement): void {
   });
 
   page.querySelectorAll<HTMLButtonElement>("[data-ldelete]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
+    btn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm("Na pewno usunąć tę robociznę?")) return;
-      deleteLabor(parseInt(btn.dataset.ldelete!));
-      showToast("Robocizna usunięta");
-      render();
+      const id = parseInt(btn.dataset.ldelete!);
+      const item = getLabor({ show_archived: true }).find((l) => l.id === id);
+      if (!item) return;
+      if (await dangerModal("Usunąć robociznę?", `Na pewno usunąć "${item.name}"?`)) {
+        deleteLabor(id);
+        showToast("Robocizna usunięta");
+        render();
+      }
     });
   });
 
   page.querySelectorAll<HTMLTableRowElement>("tr[data-lid]").forEach((tr) => {
     tr.addEventListener("dblclick", () => {
       const id = parseInt(tr.dataset.lid!);
-      const item = getLabor({ show_archived: true }).find((l) => l.id === id);
-      if (item) openLaborModal(item);
+      detailId = id;
+      view = "detail";
+      render();
     });
   });
-}
-
-// ─── Modal ───────────────────────────────────────────────────────
-function openLaborModal(labor?: Labor): void {
-  const isEdit = !!labor;
-  const existingCats = getLaborCategories();
-
-  const catDatalist = existingCats.map((c) => `<option value="${esc(c)}">`).join("");
-
-  openModal(`
-    <h2 class="modal-title">${isEdit ? "Edytuj robociznę" : "Dodaj robociznę"}</h2>
-
-    <div class="field">
-      <label>Nazwa usługi</label>
-      <input type="text" id="f-l-name" value="${esc(labor?.name ?? "")}" placeholder="np. Malowanie ścian" />
-    </div>
-
-    <div class="field-row field-row-3">
-      <div class="field">
-        <label>Cena netto (PLN)</label>
-        <input type="number" step="0.01" id="f-l-price" value="${labor?.price_netto ?? ""}" placeholder="0,00" />
-      </div>
-      <div class="field">
-        <label>Jednostka</label>
-        <select id="f-l-unit">
-          ${["m2", "m", "mb", "m3", "szt", "kpl", "godz", "opak", "kg"].map((u) => {
-            const display = u === "m2" ? "m²" : u === "m3" ? "m³" : u;
-            return `<option value="${u}"${labor?.unit === u ? " selected" : ""}>${display}</option>`;
-          }).join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label>VAT (%)</label>
-        <select id="f-l-vat">
-          ${[23, 8, 5, 0].map((v) => `<option value="${v}"${labor?.vat_rate === v ? " selected" : ""}>${v}%</option>`).join("")}
-        </select>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Kategoria</label>
-      <input type="text" id="f-l-category" list="labor-cats" value="${esc(labor?.category ?? "")}" placeholder="np. Malowanie, Elektryka, Hydraulika" />
-      <datalist id="labor-cats">${catDatalist}</datalist>
-      <div class="field-hint">Wpisz istniejącą lub nową kategorię</div>
-    </div>
-
-    <div class="field">
-      <label>Notatki</label>
-      <textarea id="f-l-notes" placeholder="Dodatkowe informacje...">${esc(labor?.notes ?? "")}</textarea>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn" id="btn-l-cancel">Anuluj</button>
-      <button class="btn btn-primary" id="btn-l-save">${isEdit ? "Zapisz" : "Dodaj"}</button>
-    </div>
-  `);
-
-  setTimeout(() => (document.getElementById("f-l-name") as HTMLInputElement)?.focus(), 80);
-
-  document.getElementById("btn-l-cancel")!.addEventListener("click", closeModal);
-
-  document.getElementById("btn-l-save")!.addEventListener("click", () => {
-    saveLaborFromModal(labor?.id);
-  });
-
-  document.getElementById("modal-box")!.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") {
-      e.preventDefault();
-      saveLaborFromModal(labor?.id);
-    }
-  });
-}
-
-function saveLaborFromModal(editId?: number): void {
-  const name = (document.getElementById("f-l-name") as HTMLInputElement).value.trim();
-  if (!name) {
-    (document.getElementById("f-l-name") as HTMLInputElement).focus();
-    return;
-  }
-
-  const input: LaborInput = {
-    name,
-    unit: (document.getElementById("f-l-unit") as HTMLSelectElement).value,
-    price_netto: parseFloat((document.getElementById("f-l-price") as HTMLInputElement).value) || 0,
-    vat_rate: parseInt((document.getElementById("f-l-vat") as HTMLSelectElement).value),
-    category: (document.getElementById("f-l-category") as HTMLInputElement).value.trim() || "Ogólne",
-    notes: (document.getElementById("f-l-notes") as HTMLTextAreaElement).value.trim(),
-  };
-
-  if (editId) {
-    updateLabor(editId, input);
-    showToast("Robocizna zaktualizowana");
-  } else {
-    addLabor(input);
-    showToast("Robocizna dodana");
-  }
-
-  closeModal();
-  render();
 }
 
 // ─── Init ────────────────────────────────────────────────────────

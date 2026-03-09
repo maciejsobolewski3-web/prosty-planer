@@ -200,69 +200,12 @@ export function seedTradeDefaults(): void {
       { name: "Inne", color: "#9CA3AF" },
     ];
 
-    const catIds: number[] = [];
     for (const tc of tradeCats) {
       const id = _nextId();
-      db.categories.push({ id, name: tc.name, color: tc.color, sort_order: 100 + catIds.length });
-      catIds.push(id);
+      db.categories.push({ id, name: tc.name, color: tc.color, sort_order: 100 + db.categories.length });
     }
 
-    // Demo products
-    const now = new Date().toISOString();
-    const demoProducts: Omit<Product, "id" | "created_at" | "updated_at">[] = [
-      { name: "Jajka kurze M karton 30szt", unit: "karton", purchase_price: 12.50, catalog_price: 16.00, vat_rate: 5, category_id: catIds[0], ean: "5901234560001", sku: "JAJ-M-30", supplier: "Ferma Kowalski", min_order: "paleta 20 kartonów", notes: "", is_favorite: true, is_archived: false },
-      { name: "Papier A4 ryza 500 ark", unit: "ryza", purchase_price: 14.80, catalog_price: 19.90, vat_rate: 23, category_id: catIds[2], ean: "5901234560002", sku: "PAP-A4-500", supplier: "Papirus Sp. z o.o.", min_order: "karton 5 ryz", notes: "80g/m²", is_favorite: true, is_archived: false },
-      { name: "Rękawice robocze lateksowe para", unit: "para", purchase_price: 3.20, catalog_price: 5.50, vat_rate: 23, category_id: catIds[4], ean: "5901234560003", sku: "REK-LAT-L", supplier: "BHP Express", min_order: "opak 12 par", notes: "Rozmiar L", is_favorite: false, is_archived: false },
-      { name: "Płyn do mycia naczyń 5L", unit: "szt", purchase_price: 8.90, catalog_price: 14.50, vat_rate: 23, category_id: catIds[1], ean: "5901234560004", sku: "PLN-NAC-5L", supplier: "ChemClean", min_order: "karton 4 szt", notes: "", is_favorite: false, is_archived: false },
-      { name: "Mleko UHT 2% 1L", unit: "szt", purchase_price: 2.80, catalog_price: 3.90, vat_rate: 5, category_id: catIds[0], ean: "5901234560005", sku: "MLK-UHT-1L", supplier: "Mleczarnia Łąkowa", min_order: "zgrzewka 12 szt", notes: "", is_favorite: false, is_archived: false },
-      { name: "Długopis niebieski BIC", unit: "szt", purchase_price: 0.95, catalog_price: 2.50, vat_rate: 23, category_id: catIds[2], ean: "5901234560006", sku: "DLG-BIC-BLU", supplier: "Biuroserwis", min_order: "opak 50 szt", notes: "", is_favorite: false, is_archived: false },
-      { name: "Worki na śmieci 120L 25szt", unit: "opak", purchase_price: 6.50, catalog_price: 11.00, vat_rate: 23, category_id: catIds[1], ean: "5901234560007", sku: "WOR-120-25", supplier: "ChemClean", min_order: "karton 20 opak", notes: "LDPE czarne", is_favorite: false, is_archived: false },
-    ];
-
-    for (const dp of demoProducts) {
-      db.products.push({
-        id: _nextId(),
-        ...dp,
-        created_at: now,
-        updated_at: now,
-      });
-    }
-
-    // Demo offer
-    const offerId = _nextId();
-    const demoItems: OfferItem[] = db.products.slice(0, 5).map((p, idx) => ({
-      id: _nextId(),
-      product_id: p.id,
-      name: p.name,
-      unit: p.unit,
-      quantity: [600, 200, 500, 100, 1200][idx] || 100,
-      purchase_price: p.purchase_price,
-      offer_price: Math.round(p.purchase_price * 1.15 * 100) / 100,
-      vat_rate: p.vat_rate,
-      margin_percent: 15,
-      matched: true,
-      notes: "",
-    }));
-
-    db.offers.push({
-      id: offerId,
-      name: "Dostawa art. spożywczych i biurowych do Szkoły Podstawowej nr 7",
-      client: "Szkoła Podstawowa nr 7 w Kielcach",
-      reference_number: "BZP/2025/03/1234",
-      status: "robocza",
-      notes: "Przetarg nieograniczony, kryterium 100% cena",
-      global_margin: 15,
-      transport_cost: 2500,
-      storage_cost: 800,
-      other_costs: 300,
-      deadline: "2025-04-15",
-      delivery_start: "2025-05-01",
-      delivery_end: "2025-12-31",
-      items: demoItems,
-      created_at: now,
-      updated_at: now,
-    });
-
+    // Clean start — no demo products or offers
     localStorage.setItem(TRADE_CATEGORY_KEY, "1");
     _scheduleSave();
   }

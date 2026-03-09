@@ -46,8 +46,11 @@ import {
   renderTagBadges,
   renderTagPicker,
   getSelectedTags,
+  bindTagPicker,
 } from "./ui";
 import { renderClientPicker, quickAddClientFromName } from "./klienci";
+import { dpHeader, dpSections, dpFooter, dpCollect, dpValidate, dpBindActions, dpFocus, type DPSection, type DPFooterButton } from "./detail-page";
+import { dangerModal } from "./danger-modal";
 
 // ─── Status config ───────────────────────────────────────────────
 const STATUS_CONFIG: Record<ZlecenieStatus, { label: string; color: string; icon: string }> = {
@@ -66,25 +69,135 @@ function statusBadge(status: ZlecenieStatus): string {
 
 // ─── State ───────────────────────────────────────────────────────
 let activeZlecenieId: number | null = null;
+let zlecenieFormMode: boolean = false;
 let filterStatus: ZlecenieStatus | "all" = "all";
 let filterClient: string = "";
 let viewMode: "list" | "kanban" = "list";
 
 export function initZlecenia(): void {
   activeZlecenieId = null;
+  zlecenieFormMode = false;
   filterStatus = "all";
   render();
 
   // Listen for open-zlecenie event from dashboard
   window.addEventListener("open-zlecenie", ((e: CustomEvent) => {
     activeZlecenieId = e.detail;
+    zlecenieFormMode = false;
     render();
   }) as EventListener);
 }
 
 function render(): void {
-  if (activeZlecenieId !== null) renderDetail(activeZlecenieId);
+  if (zlecenieFormMode) renderZlecenieForm();
+  else if (activeZlecenieId !== null) renderDetail(activeZlecenieId);
   else renderList();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ZLECENIE FORM VIEW
+// ═══════════════════════════════════════════════════════════════════
+function renderZlecenieForm(): void {
+  const page = document.getElementById("page-zlecenia")!;
+  const z = activeZlecenieId ? getZlecenieById(activeZlecenieId) : null;
+  const title = z ? "Ustawienia zlecenia" : "Nowe zlecenie";
+  const sections = getZlecenieSections(z ?? undefined);
+
+  document.getElementById("topbar-title")!.textContent = title;
+  document.getElementById("topbar-actions")!.innerHTML = "";
+
+  const footerButtons: DPFooterButton[] = [
+    { id: "btn-back", label: "Wróć", style: "secondary", action: "back" },
+    { id: "btn-save", label: z ? "Zapisz" : "Utwórz", style: "primary", action: "save", icon: "fa-solid fa-check" },
+  ];
+
+  page.innerHTML = dpHeader(title) + dpSections(sections) + dpFooter(footerButtons);
+
+  // Bind tag picker after rendering
+  bindTagPicker("tag-picker-z");
+
+  dpBindActions(page, {
+    back: () => {
+      zlecenieFormMode = false;
+      render();
+    },
+    save: () => {
+      const result = dpValidate(page, sections);
+      if (!result.valid) return;
+      const data = dpCollect(page, sections);
+
+      const input: ZlecenieInput = {
+        name: data.name,
+        client: data.client,
+        status: data.status,
+        notes: data.notes,
+        markup_materials: data.markup_materials,
+        markup_labor: data.markup_labor,
+        date_start: data.date_start,
+        date_end: data.date_end,
+        tags: getSelectedTags("tag-picker-z"),
+      };
+
+      if (data.client) quickAddClientFromName(data.client);
+
+      if (z) {
+        updateZlecenie(z.id, input);
+        showToast("Zlecenie zaktualizowane");
+      } else {
+        const newZ = addZlecenie(input);
+        activeZlecenieId = newZ.id;
+        showToast("Zlecenie utworzone");
+      }
+
+      zlecenieFormMode = false;
+      render();
+    },
+  });
+
+  dpFocus(page, sections);
+}
+
+// ─── Zlecenie form sections ──────────────────────────────────────
+function getZlecenieSections(z?: Zlecenie): DPSection[] {
+  return [
+    {
+      id: "section-general",
+      title: "Podstawowe informacje",
+      columns: 2,
+      fields: [
+        { id: "f-z-name", name: "name", label: "Nazwa zlecenia", type: "text", required: true, placeholder: "np. Wykończenie mieszkania ul. Kwiatowa 5", value: z?.name ?? "" },
+        { id: "f-z-client", name: "client", label: "Klient", type: "custom", customHtml: `<div class="field"><label>Klient</label>${renderClientPicker("f-z-client", z?.client ?? "")}</div>` },
+        { id: "f-z-status", name: "status", label: "Status", type: "select", value: z?.status ?? "wycena", options: Object.entries(STATUS_CONFIG).map(([key, cfg]) => ({ value: key, label: cfg.label })) },
+      ]
+    },
+    {
+      id: "section-pricing",
+      title: "Narzuty",
+      columns: 2,
+      fields: [
+        { id: "f-z-markup-mat", name: "markup_materials", label: "Narzut na materiały (%)", type: "number", step: 1, min: 0, value: z?.markup_materials ?? 0, hint: "Doliczany do ceny bazowej materiałów" },
+        { id: "f-z-markup-labor", name: "markup_labor", label: "Narzut na robociznę (%)", type: "number", step: 1, min: 0, value: z?.markup_labor ?? 0, hint: "Doliczany do stawek robocizny" },
+      ]
+    },
+    {
+      id: "section-dates",
+      title: "Harmonogram",
+      columns: 2,
+      fields: [
+        { id: "f-z-date-start", name: "date_start", label: "Data rozpoczęcia", type: "date", value: z?.date_start ?? "" },
+        { id: "f-z-date-end", name: "date_end", label: "Data zakończenia", type: "date", value: z?.date_end ?? "" },
+      ]
+    },
+    {
+      id: "section-notes",
+      title: "Dodatkowe informacje",
+      columns: 1,
+      fields: [
+        { id: "f-z-notes", name: "notes", label: "Notatki", type: "textarea", placeholder: "Dodatkowe informacje...", value: z?.notes ?? "", rows: 3 },
+      ],
+      customHtml: `<div class="field" style="margin-top:12px"><label>Tagi</label>${renderTagPicker(z?.tags ?? [], "tag-picker-z")}</div>`,
+    }
+  ];
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -114,7 +227,11 @@ function renderList(): void {
     viewMode = viewMode === 'list' ? 'kanban' : 'list';
     renderList();
   });
-  document.getElementById("btn-add-zlecenie")!.addEventListener("click", () => openZlecenieModal());
+  document.getElementById("btn-add-zlecenie")!.addEventListener("click", () => {
+    activeZlecenieId = null;
+    zlecenieFormMode = true;
+    render();
+  });
   document.getElementById("btn-from-template")!.addEventListener("click", () => openFromTemplateModal());
 
   // Status filter bar
@@ -131,7 +248,11 @@ function renderList(): void {
         </button>
       </div>
     `;
-    page.querySelector("#btn-empty-add-zlecenie")!.addEventListener("click", () => openZlecenieModal());
+    page.querySelector("#btn-empty-add-zlecenie")!.addEventListener("click", () => {
+      activeZlecenieId = null;
+      zlecenieFormMode = true;
+      render();
+    });
     return;
   }
 
@@ -182,6 +303,7 @@ function renderList(): void {
     card.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest("[data-zedit], [data-zdelete], [data-zduplicate]")) return;
       activeZlecenieId = parseInt(card.dataset.zid!);
+      zlecenieFormMode = false;
       render();
     });
   });
@@ -189,8 +311,9 @@ function renderList(): void {
   page.querySelectorAll<HTMLButtonElement>("[data-zedit]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const z = getZlecenieById(parseInt(btn.dataset.zedit!));
-      if (z) openZlecenieModal(z);
+      activeZlecenieId = parseInt(btn.dataset.zedit!);
+      zlecenieFormMode = true;
+      render();
     });
   });
 
@@ -206,26 +329,12 @@ function renderList(): void {
   });
 
   page.querySelectorAll<HTMLButtonElement>("[data-zdelete]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
+    btn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      // Double-click guard: first click changes label, second deletes
-      if (btn.dataset.confirmDelete) {
+      if (await dangerModal("Usunąć zlecenie?", "Wszystkie pozycje zostaną usunięte.")) {
         deleteZlecenie(parseInt(btn.dataset.zdelete!));
         showToast("Zlecenie usunięte");
         render();
-      } else {
-        btn.dataset.confirmDelete = "1";
-        btn.innerHTML = '<span style="font-size:11px;white-space:nowrap">Na pewno?</span>';
-        btn.style.width = "auto";
-        btn.style.padding = "4px 8px";
-        setTimeout(() => {
-          if (btn.isConnected) {
-            btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
-            btn.style.width = "";
-            btn.style.padding = "";
-            delete btn.dataset.confirmDelete;
-          }
-        }, 3000);
       }
     });
   });
@@ -313,6 +422,7 @@ function bindKanbanEvents(): void {
   page.querySelectorAll<HTMLElement>(".kanban-card").forEach((card) => {
     card.addEventListener("click", () => {
       activeZlecenieId = parseInt(card.dataset.kanbanZid!);
+      zlecenieFormMode = false;
       render();
     });
   });
@@ -363,7 +473,7 @@ function renderDetail(zId: number): void {
   page.scrollTo(0, 0);
   const z = getZlecenieById(zId);
 
-  if (!z) { activeZlecenieId = null; renderList(); return; }
+  if (!z) { activeZlecenieId = null; zlecenieFormMode = false; renderList(); return; }
 
   // Set AI context to this zlecenie
   setAIViewContext({ entity_type: "zlecenie", entity_id: zId });
@@ -383,13 +493,14 @@ function renderDetail(zId: number): void {
     <button class="btn" id="btn-add-dojazd"><i class="fa-solid fa-car"></i> Dojazd</button>
     <button class="btn btn-primary" id="btn-add-item"><i class="fa-solid fa-plus"></i> Dodaj pozycję</button>
   `;
-  document.getElementById("btn-back-list")!.addEventListener("click", () => { activeZlecenieId = null; render(); });
+  document.getElementById("btn-back-list")!.addEventListener("click", () => { activeZlecenieId = null; zlecenieFormMode = false; render(); });
   document.getElementById("btn-refresh-prices")!.addEventListener("click", () => refreshPrices(z.id));
   document.getElementById("btn-duplicate-zlecenie")!.addEventListener("click", () => {
     const newZ = duplicateZlecenie(z.id);
     if (newZ) {
       showToast("Zlecenie zduplikowane!");
       activeZlecenieId = newZ.id;
+      zlecenieFormMode = false;
       render();
     }
   });
@@ -410,7 +521,11 @@ function renderDetail(zId: number): void {
   document.getElementById("btn-export-csv")!.addEventListener("click", () => exportCsv(z));
   document.getElementById("btn-export-xlsx")!.addEventListener("click", () => exportZlecenieToXLSX(z));
   document.getElementById("btn-save-template")!.addEventListener("click", () => openSaveTemplateModal(z.id));
-  document.getElementById("btn-edit-zlecenie")!.addEventListener("click", () => openZlecenieModal(z));
+  document.getElementById("btn-edit-zlecenie")!.addEventListener("click", () => {
+    activeZlecenieId = z.id;
+    zlecenieFormMode = true;
+    render();
+  });
   document.getElementById("btn-add-dojazd")!.addEventListener("click", () => openDojazdModal(z.id));
   document.getElementById("btn-add-item")!.addEventListener("click", () => openAddItemModal(z.id));
 
@@ -597,7 +712,7 @@ function renderDetail(zId: number): void {
 
       <!-- Cost breakdown -->
       ${z.items.length > 0 ? `
-        <div class="profit-cost-breakdown">
+        <div class="profit-expenses">
           <div class="profit-expenses-title">Struktura zlecenia</div>
           ${totals.costMaterials > 0 ? `<div class="profit-expense-row">
             <span class="expense-badge" style="color:var(--accent);background:var(--accent-bg);font-size:10px"><i class="fa-solid fa-boxes-stacked" style="font-size:9px"></i> Materiały (koszt)</span>
@@ -736,10 +851,12 @@ function renderDetail(zId: number): void {
   });
 
   page.querySelectorAll<HTMLButtonElement>("[data-remove-item]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      removeZlecenieItem(z.id, parseInt(btn.dataset.removeItem!));
-      showToast("Pozycja usunięta");
-      renderDetail(z.id);
+    btn.addEventListener("click", async () => {
+      if (await dangerModal("Usunąć pozycję?")) {
+        removeZlecenieItem(z.id, parseInt(btn.dataset.removeItem!));
+        showToast("Pozycja usunięta");
+        renderDetail(z.id);
+      }
     });
   });
 
@@ -773,14 +890,13 @@ function renderDetail(zId: number): void {
     });
   });
 
-  // Select all checkbox for selected items sum (reuse existing bulk-check-all-z)
+  // Select all checkbox for selected items sum
   const selectAllCheckbox = document.getElementById("bulk-check-all-z") as HTMLInputElement;
-  const originalSelectAllListener = selectAllCheckbox?.onchange;
   selectAllCheckbox?.addEventListener("change", (e) => {
     updateSelectedSum(z);
   });
 
-  // Individual checkboxes for selected items (reuse existing bulk-check)
+  // Individual checkboxes for selected items
   document.querySelectorAll<HTMLInputElement>(".bulk-check").forEach(cb => {
     cb.addEventListener("change", () => updateSelectedSum(z));
   });
@@ -857,7 +973,6 @@ function initDragDrop(page: HTMLElement, zlecenieId: number): void {
     row.addEventListener("dragend", () => {
       row.classList.remove("dragging");
       dragRow = null;
-      // Remove all drag-over classes
       tbody.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
     });
 
@@ -879,7 +994,6 @@ function initDragDrop(page: HTMLElement, zlecenieId: number): void {
       row.classList.remove("drag-over");
       if (!dragRow || row === dragRow) return;
 
-      // Reorder in DOM
       const rows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>("tr[data-item-id]"));
       const fromIdx = rows.indexOf(dragRow);
       const toIdx = rows.indexOf(row);
@@ -890,7 +1004,6 @@ function initDragDrop(page: HTMLElement, zlecenieId: number): void {
         row.before(dragRow);
       }
 
-      // Save new order
       const newOrder = Array.from(tbody.querySelectorAll<HTMLTableRowElement>("tr[data-item-id]"))
         .map((r) => parseInt(r.dataset.itemId!));
 
@@ -916,33 +1029,20 @@ function initZlecenieBulkSelect(page: HTMLElement, zlecenieId: number): void {
     cb.addEventListener("click", (e) => e.stopPropagation());
   });
 
-  page.querySelector("#btn-bulk-delete-z")?.addEventListener("click", () => {
+  page.querySelector("#btn-bulk-delete-z")?.addEventListener("click", async () => {
     const checked = page.querySelectorAll<HTMLInputElement>(".bulk-check:checked");
     const count = checked.length;
     if (count === 0) return;
 
     const label = count === 1 ? "pozycję" : count < 5 ? "pozycje" : "pozycji";
+    const message = `Czy na pewno chcesz usunąć ${count} ${label} ze zlecenia?`;
 
-    openModal(`
-      <h2 class="modal-title"><i class="fa-solid fa-triangle-exclamation"></i> Potwierdź usunięcie</h2>
-      <p>Czy na pewno chcesz usunąć <strong>${count}</strong> ${label} ze zlecenia?</p>
-      <p class="cell-muted" style="font-size:12px">Tej operacji nie można cofnąć.</p>
-      <div class="modal-footer">
-        <button class="btn" id="btn-bulk-cancel">Anuluj</button>
-        <button class="btn btn-danger" id="btn-bulk-confirm">
-          <i class="fa-solid fa-trash"></i> Usuń ${count} ${label}
-        </button>
-      </div>
-    `);
-
-    document.getElementById("btn-bulk-cancel")!.addEventListener("click", closeModal);
-    document.getElementById("btn-bulk-confirm")!.addEventListener("click", () => {
+    if (await dangerModal(message, "Tej operacji nie można cofnąć.")) {
       const ids = Array.from(checked).map((cb) => parseInt(cb.dataset.itemId!));
       ids.forEach((id) => removeZlecenieItem(zlecenieId, id));
-      closeModal();
       showToast(`Usunięto ${count} pozycji`);
       renderDetail(zlecenieId);
-    });
+    }
   });
 }
 
@@ -1053,7 +1153,6 @@ function openDojazdModal(zlecenieId: number): void {
     const cena = parseFloat(cenaInput.value) || 0;
     const cost = (totalKm * spalanie / 100) * cena;
 
-    // Save defaults for next time
     saveDojazdDefaults({ spalanie, cenaPaliwa: cena });
 
     const label = `Dojazd — ${totalKm.toFixed(0)} km${roundtrip ? " (tam i z powrotem)" : ""}`;
@@ -1301,111 +1400,6 @@ function renderNewLaborTab(container: HTMLElement, zlecenieId: number): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ZLECENIE MODAL (create / edit)
-// ═══════════════════════════════════════════════════════════════════
-function openZlecenieModal(z?: Zlecenie): void {
-  const isEdit = !!z;
-
-  openModal(`
-    <h2 class="modal-title">${isEdit ? "Ustawienia zlecenia" : "Nowe zlecenie"}</h2>
-    <div class="field">
-      <label>Nazwa zlecenia</label>
-      <input type="text" id="f-z-name" value="${esc(z?.name ?? "")}" placeholder="np. Wykończenie mieszkania ul. Kwiatowa 5" />
-    </div>
-    <div class="field">
-      <label>Klient</label>
-      ${renderClientPicker("f-z-client", z?.client ?? "")}
-    </div>
-
-    <div class="field">
-      <label>Status</label>
-      <select id="f-z-status">
-        ${Object.entries(STATUS_CONFIG).map(([key, cfg]) =>
-          `<option value="${key}"${(z?.status || "wycena") === key ? " selected" : ""}>${cfg.label}</option>`
-        ).join("")}
-      </select>
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Narzut na materiały (%)</label>
-        <input type="number" step="1" min="0" id="f-z-markup-mat" value="${z?.markup_materials ?? 0}" />
-        <div class="field-hint">Doliczany do ceny bazowej materiałów</div>
-      </div>
-      <div class="field">
-        <label>Narzut na robociznę (%)</label>
-        <input type="number" step="1" min="0" id="f-z-markup-labor" value="${z?.markup_labor ?? 0}" />
-        <div class="field-hint">Doliczany do stawek robocizny</div>
-      </div>
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Data rozpoczęcia</label>
-        <input type="date" id="f-z-date-start" value="${z?.date_start ?? ""}" />
-      </div>
-      <div class="field">
-        <label>Data zakończenia</label>
-        <input type="date" id="f-z-date-end" value="${z?.date_end ?? ""}" />
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Notatki</label>
-      <textarea id="f-z-notes" placeholder="Dodatkowe informacje...">${esc(z?.notes ?? "")}</textarea>
-    </div>
-    <div class="field">
-      <label>Tagi</label>
-      ${renderTagPicker(z?.tags ?? [], "tag-picker-z")}
-    </div>
-    <div class="modal-footer">
-      <button class="btn" id="btn-z-cancel">Anuluj</button>
-      <button class="btn btn-primary" id="btn-z-save">${isEdit ? "Zapisz" : "Utwórz"}</button>
-    </div>
-  `, undefined, true);
-
-  setTimeout(() => (document.getElementById("f-z-name") as HTMLInputElement)?.focus(), 80);
-  document.getElementById("btn-z-cancel")!.addEventListener("click", closeModal);
-
-  const save = () => {
-    const name = (document.getElementById("f-z-name") as HTMLInputElement).value.trim();
-    if (!name) { (document.getElementById("f-z-name") as HTMLInputElement).focus(); return; }
-
-    const input: ZlecenieInput = {
-      name,
-      client: (document.getElementById("f-z-client") as HTMLInputElement).value.trim(),
-      status: (document.getElementById("f-z-status") as HTMLSelectElement).value,
-      notes: (document.getElementById("f-z-notes") as HTMLTextAreaElement).value.trim(),
-      markup_materials: parseFloat((document.getElementById("f-z-markup-mat") as HTMLInputElement).value) || 0,
-      markup_labor: parseFloat((document.getElementById("f-z-markup-labor") as HTMLInputElement).value) || 0,
-      date_start: (document.getElementById("f-z-date-start") as HTMLInputElement).value,
-      date_end: (document.getElementById("f-z-date-end") as HTMLInputElement).value,
-      tags: getSelectedTags("tag-picker-z"),
-    };
-
-    // Auto-save client to database if new
-    if (input.client) quickAddClientFromName(input.client);
-
-    if (isEdit && z) {
-      updateZlecenie(z.id, input);
-      showToast("Zlecenie zaktualizowane");
-    } else {
-      const newZ = addZlecenie(input);
-      activeZlecenieId = newZ.id;
-      showToast("Zlecenie utworzone");
-    }
-
-    closeModal();
-    render();
-  };
-
-  document.getElementById("btn-z-save")!.addEventListener("click", save);
-  document.getElementById("modal-box")!.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") { e.preventDefault(); save(); }
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // TEMPLATES
 // ═══════════════════════════════════════════════════════════════════
 function openSaveTemplateModal(zlecenieId: number): void {
@@ -1505,6 +1499,7 @@ function openFromTemplateModal(): void {
     const z = createFromTemplate(tmplId, name, client);
     if (z) {
       activeZlecenieId = z.id;
+      zlecenieFormMode = false;
       showToast(`Zlecenie utworzone z szablonu`);
       closeModal();
       render();
@@ -1681,9 +1676,8 @@ interface ZlecenieTotals {
   nettoWithMarkup: number;
   vat: number;
   bruttoWithMarkup: number;
-  // Cost breakdown (base netto by type)
-  costMaterials: number;   // netto base cost of materials
-  costLabor: number;       // netto base cost of labor
+  costMaterials: number;
+  costLabor: number;
 }
 
 function calcTotals(z: Zlecenie): ZlecenieTotals {

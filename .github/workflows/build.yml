@@ -66,6 +66,6 @@ jobs:
             **Instalacja:**
             - Windows: Pobierz plik `.exe` i uruchom installer
             - macOS: Pobierz plik `.dmg`, otwórz i przeciągnij do Applications
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}

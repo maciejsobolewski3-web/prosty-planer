@@ -50,6 +50,8 @@ import {
   getSelectedTags,
 } from "./ui";
 import { renderClientPicker, quickAddClientFromName } from "./klienci";
+import { dpHeader, dpSections, dpFooter, dpCollect, dpValidate, dpBindActions, dpFocus, type DPSection, type DPFooterButton } from "./detail-page";
+import { dangerModal } from "./danger-modal";
 
 // ─── Status config ───────────────────────────────────────────────
 const OFFER_STATUS_CONFIG: Record<OfferStatus, { label: string; color: string; icon: string }> = {
@@ -70,11 +72,13 @@ export { OFFER_STATUS_CONFIG };
 
 // ─── State ───────────────────────────────────────────────────────
 let activeOfferId: number | null = null;
+let offerFormMode: boolean = false;
 let filterStatus: OfferStatus | "all" = "all";
 let filterClient: string = "";
 
 export function initOffers(): void {
   activeOfferId = null;
+  offerFormMode = false;
   filterStatus = "all";
   filterClient = "";
   render();
@@ -82,14 +86,208 @@ export function initOffers(): void {
   // Listen for open-offer event from dashboard
   window.addEventListener("open-offer", ((e: CustomEvent) => {
     activeOfferId = e.detail;
+    offerFormMode = false;
     render();
   }) as EventListener);
 }
 
 function render(): void {
-  if (activeOfferId !== null) renderDetail(activeOfferId);
+  if (offerFormMode) renderOfferForm();
+  else if (activeOfferId !== null) renderDetail(activeOfferId);
   else renderList();
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// OFFER FORM (Detail Page Pattern)
+// ═══════════════════════════════════════════════════════════════════
+function renderOfferForm(o?: Offer): void {
+  const page = document.getElementById("page-offers")!;
+  const isEdit = !!o;
+
+  document.getElementById("topbar-title")!.textContent = isEdit ? "Edytuj ofertę" : "Nowa oferta";
+  document.getElementById("topbar-actions")!.innerHTML = "";
+
+  const sections = getOfferSections(o);
+  const footerButtons: DPFooterButton[] = [
+    { id: "btn-of-cancel", label: "Anuluj", style: "secondary", action: "back" },
+    { id: "btn-of-save", label: isEdit ? "Zapisz" : "Utwórz", style: "primary", action: "save" },
+  ];
+
+  page.innerHTML = `
+    ${dpHeader(isEdit ? `Ustawienia oferty: ${esc(o!.name)}` : "Nowa oferta")}
+    ${dpSections(sections)}
+    ${dpFooter(footerButtons)}
+  `;
+
+  dpBindActions(page, {
+    back: () => {
+      offerFormMode = false;
+      render();
+    },
+    save: () => {
+      // This will be handled by the individual button listener below
+    },
+  });
+  dpFocus(page, sections);
+
+  // Handle save
+  document.getElementById("btn-of-save")!.addEventListener("click", () => {
+    const result = dpValidate(page, sections);
+    if (!result.valid) {
+      showToast(`Błędy: ${Object.values(result.errors).join(", ")}`);
+      return;
+    }
+
+    const data = dpCollect(page, sections);
+    const input: OfferInput = {
+      name: data.name,
+      client: data.client,
+      reference_number: data.reference_number,
+      status: data.status,
+      notes: data.notes,
+      global_margin: parseFloat(data.global_margin) || 0,
+      transport_cost: o?.transport_cost || 0,
+      storage_cost: o?.storage_cost || 0,
+      other_costs: o?.other_costs || 0,
+      deadline: data.deadline,
+      delivery_start: data.delivery_start,
+      delivery_end: data.delivery_end,
+      tags: getSelectedTags("tag-picker-o"),
+    };
+
+    if (input.client) quickAddClientFromName(input.client);
+
+    if (isEdit && o) {
+      updateOffer(o.id, input);
+      showToast("Oferta zaktualizowana");
+      activeOfferId = o.id;
+    } else {
+      const newO = addOffer(input);
+      activeOfferId = newO.id;
+      showToast("Oferta utworzona");
+    }
+
+    offerFormMode = false;
+    render();
+  });
+
+  // Handle cancel
+  document.getElementById("btn-of-cancel")!.addEventListener("click", () => {
+    offerFormMode = false;
+    render();
+  });
+}
+
+function getOfferSections(o?: Offer): DPSection[] {
+  const statusOptions = Object.entries(OFFER_STATUS_CONFIG).map(([key, cfg]) => ({
+    value: key,
+    label: cfg.label,
+  }));
+
+  return [
+    {
+      id: "section-general",
+      title: "Podstawowe informacje",
+      columns: 2,
+      fields: [
+        {
+          id: "f-o-name",
+          name: "name",
+          label: "Nazwa przetargu",
+          type: "text",
+          required: true,
+          placeholder: "np. Dostawa artykułów biurowych",
+          value: o?.name ?? "",
+        },
+        {
+          id: "f-o-client",
+          name: "client",
+          label: "Zamawiający",
+          type: "custom",
+          customHtml: `<div class="field"><label>Zamawiający</label>${renderClientPicker("f-o-client", o?.client ?? "")}</div>`,
+        },
+        {
+          id: "f-o-ref",
+          name: "reference_number",
+          label: "Numer referencyjny (BZP/TED)",
+          type: "text",
+          placeholder: "opcjonalnie",
+          value: o?.reference_number ?? "",
+        },
+        {
+          id: "f-o-status",
+          name: "status",
+          label: "Status",
+          type: "select",
+          value: o?.status ?? "robocza",
+          options: statusOptions,
+        },
+      ],
+    },
+    {
+      id: "section-margin",
+      title: "Marża",
+      columns: 1,
+      fields: [
+        {
+          id: "f-o-margin",
+          name: "global_margin",
+          label: "Domyślna marża (%)",
+          type: "number",
+          step: 0.1,
+          min: 0,
+          value: o?.global_margin ?? 10,
+        },
+      ],
+    },
+    {
+      id: "section-dates",
+      title: "Terminy",
+      columns: 3,
+      fields: [
+        {
+          id: "f-o-deadline",
+          name: "deadline",
+          label: "Termin składania",
+          type: "date",
+          value: o?.deadline ?? "",
+        },
+        {
+          id: "f-o-delivery-start",
+          name: "delivery_start",
+          label: "Początek dostaw",
+          type: "date",
+          value: o?.delivery_start ?? "",
+        },
+        {
+          id: "f-o-delivery-end",
+          name: "delivery_end",
+          label: "Koniec dostaw",
+          type: "date",
+          value: o?.delivery_end ?? "",
+        },
+      ],
+    },
+    {
+      id: "section-notes",
+      title: "Dodatkowe informacje",
+      columns: 1,
+      fields: [
+        {
+          id: "f-o-notes",
+          name: "notes",
+          label: "Notatki",
+          type: "textarea",
+          placeholder: "Dodatkowe informacje...",
+          value: o?.notes ?? "",
+          rows: 3,
+        },
+      ],
+      customHtml: `<div class="field" style="margin-top:12px"><label>Tagi</label>${renderTagPicker(o?.tags ?? [], "tag-picker-o")}</div>`,
+    },
+  ];
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 // LIST VIEW
@@ -110,7 +308,7 @@ function renderList(): void {
       <i class="fa-solid fa-plus"></i> Nowa oferta
     </button>
   `;
-  document.getElementById("btn-add-offer")!.addEventListener("click", () => openOfferModal());
+  document.getElementById("btn-add-offer")!.addEventListener("click", () => { offerFormMode = true; render(); });
   document.getElementById("btn-compare-offers")?.addEventListener("click", () => openCompareModal(allOffers));
   document.getElementById("btn-from-offer-template")?.addEventListener("click", () => openFromOfferTemplateModal());
 
@@ -128,7 +326,7 @@ function renderList(): void {
         </button>
       </div>
     `;
-    page.querySelector("#btn-empty-add-offer")!.addEventListener("click", () => openOfferModal());
+    page.querySelector("#btn-empty-add-offer")!.addEventListener("click", () => { offerFormMode = true; render(); });
     return;
   }
 
@@ -175,6 +373,7 @@ function renderList(): void {
     card.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest("[data-oedit], [data-odelete], [data-oduplicate]")) return;
       activeOfferId = parseInt(card.dataset.oid!);
+      offerFormMode = false;
       render();
     });
   });
@@ -183,7 +382,7 @@ function renderList(): void {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const o = getOfferById(parseInt(btn.dataset.oedit!));
-      if (o) openOfferModal(o);
+      if (o) { offerFormMode = true; activeOfferId = o.id; render(); }
     });
   });
 
@@ -198,24 +397,12 @@ function renderList(): void {
   page.querySelectorAll<HTMLButtonElement>("[data-odelete]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (btn.dataset.confirmDelete) {
+      dangerModal(`Czy na pewno chcesz usunąć ofertę "${getOfferById(parseInt(btn.dataset.odelete!))?.name}"?`).then(async (confirmed) => {
+      if (!confirmed) return;
         deleteOffer(parseInt(btn.dataset.odelete!));
         showToast("Oferta usunięta");
         render();
-      } else {
-        btn.dataset.confirmDelete = "1";
-        btn.innerHTML = '<span style="font-size:11px;white-space:nowrap">Na pewno?</span>';
-        btn.style.width = "auto";
-        btn.style.padding = "4px 8px";
-        setTimeout(() => {
-          if (btn.isConnected) {
-            btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
-            btn.style.width = "";
-            btn.style.padding = "";
-            delete btn.dataset.confirmDelete;
-          }
-        }, 3000);
-      }
+      });
     });
   });
 
@@ -261,6 +448,7 @@ function renderStatusFilters(allOffers: Offer[]): string {
   return html;
 }
 
+
 // ═══════════════════════════════════════════════════════════════════
 // DETAIL VIEW
 // ═══════════════════════════════════════════════════════════════════
@@ -290,7 +478,7 @@ function renderDetail(oId: number): void {
     <button class="btn" id="btn-edit-offer"><i class="fa-solid fa-gear"></i> Ustawienia</button>
     <button class="btn btn-primary" id="btn-add-offer-item"><i class="fa-solid fa-plus"></i> Dodaj pozycję</button>
   `;
-  document.getElementById("btn-back-list")!.addEventListener("click", () => { activeOfferId = null; render(); });
+  document.getElementById("btn-back-list")!.addEventListener("click", () => { activeOfferId = null; offerFormMode = false; render(); });
   document.getElementById("btn-import-excel")!.addEventListener("click", () => openImportExcelModal(o.id));
   document.getElementById("btn-fill-excel")!.addEventListener("click", () => { if (hasFillExcel) fillSourceExcel(o); });
   document.getElementById("btn-export-offer-pdf")!.addEventListener("click", () => {
@@ -298,105 +486,101 @@ function renderDetail(oId: number): void {
       <h2 class="modal-title"><i class="fa-solid fa-file-pdf"></i> Eksport PDF</h2>
       <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Wybierz styl dokumentu:</p>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <button class="btn" data-pdf-style="formal" style="padding:16px;flex-direction:column;display:flex;align-items:center;gap:6px">
-          <i class="fa-solid fa-building-columns" style="font-size:20px"></i>
-          <span>Formalny</span>
-          <span style="font-size:10px;color:var(--text-muted)">Klasyczny układ</span>
-        </button>
-        <button class="btn btn-primary" data-pdf-style="modern" style="padding:16px;flex-direction:column;display:flex;align-items:center;gap:6px">
-          <i class="fa-solid fa-wand-magic-sparkles" style="font-size:20px"></i>
-          <span>Nowoczesny</span>
-          <span style="font-size:10px;color:var(--text-muted)">Kolorowy akcent</span>
-        </button>
-        <button class="btn" data-pdf-style="minimal" style="padding:16px;flex-direction:column;display:flex;align-items:center;gap:6px">
-          <i class="fa-solid fa-minus" style="font-size:20px"></i>
-          <span>Minimalistyczny</span>
-          <span style="font-size:10px;color:var(--text-muted)">Czysty, prosty</span>
-        </button>
+        <button class="btn" id="btn-pdf-modern"><i class="fa-solid fa-palette"></i> Nowoczesny</button>
+        <button class="btn" id="btn-pdf-formal"><i class="fa-solid fa-briefcase"></i> Formalny</button>
+        <button class="btn" id="btn-pdf-minimal"><i class="fa-solid fa-file"></i> Minimalny</button>
       </div>
-      <div class="modal-footer"><button class="btn" id="btn-pdf-cancel">Anuluj</button></div>
+      <div class="modal-footer">
+        <button class="btn" id="btn-pdf-cancel">Anuluj</button>
+      </div>
     `);
     document.getElementById("btn-pdf-cancel")!.addEventListener("click", closeModal);
-    document.querySelectorAll<HTMLButtonElement>("[data-pdf-style]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        closeModal();
-        exportOfferPdf(o, btn.dataset.pdfStyle as string);
-      });
-    });
+    document.getElementById("btn-pdf-modern")!.addEventListener("click", () => { exportOfferPdf(o, "modern"); closeModal(); });
+    document.getElementById("btn-pdf-formal")!.addEventListener("click", () => { exportOfferPdf(o, "formal"); closeModal(); });
+    document.getElementById("btn-pdf-minimal")!.addEventListener("click", () => { exportOfferPdf(o, "minimal"); closeModal(); });
   });
   document.getElementById("btn-export-offer-csv")!.addEventListener("click", () => exportOfferCsv(o));
   document.getElementById("btn-email-offer")!.addEventListener("click", () => openEmailOfferModal(o));
   document.getElementById("btn-save-offer-template")!.addEventListener("click", () => openSaveOfferTemplateModal(o.id));
-  document.getElementById("btn-edit-offer")!.addEventListener("click", () => openOfferModal(o));
+  document.getElementById("btn-edit-offer")!.addEventListener("click", () => { offerFormMode = true; render(); });
   document.getElementById("btn-add-offer-item")!.addEventListener("click", () => openAddOfferItemModal(o.id));
 
+  // ─── Build content ────────────────────────────────────────────
   const totals = calcOfferTotals(o.id);
 
-  // Info bar
-  const currentStatus = o.status;
-  const statusOptions = Object.entries(OFFER_STATUS_CONFIG).map(([key, cfg]) =>
-    `<option value="${key}"${key === currentStatus ? " selected" : ""}>${cfg.label}</option>`
-  ).join("");
-
-  let infoHtml = `<div class="zlecenie-info">`;
-  infoHtml += `<span class="status-select-wrap">
-    <select class="status-select" id="offer-status-select" style="color:${OFFER_STATUS_CONFIG[currentStatus].color}">
-      ${statusOptions}
-    </select>
-  </span>`;
-  if (o.client) infoHtml += `<span><i class="fa-solid fa-building-columns"></i> ${esc(o.client)}</span>`;
-  if (o.reference_number) infoHtml += `<span><i class="fa-solid fa-hashtag"></i> ${esc(o.reference_number)}</span>`;
-  if (o.deadline) {
-    const dl = new Date(o.deadline + "T12:00:00").toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" });
-    infoHtml += `<span><i class="fa-solid fa-clock"></i> Termin: ${dl}</span>`;
-  }
-  if (o.delivery_start || o.delivery_end) {
-    const ds = o.delivery_start ? new Date(o.delivery_start + "T12:00:00").toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" }) : "?";
-    const de = o.delivery_end ? new Date(o.delivery_end + "T12:00:00").toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" }) : "?";
-    infoHtml += `<span><i class="fa-solid fa-calendar"></i> Dostawy: ${ds} — ${de}</span>`;
-  }
-  if (o.notes) infoHtml += `<span><i class="fa-solid fa-note-sticky"></i> ${esc(o.notes)}</span>`;
-  infoHtml += `</div>`;
-
-  // Global margin control
-  let marginHtml = `
-    <div class="offer-margin-bar">
-      <label style="font-size:12px;font-weight:600;text-transform:uppercase;font-family:var(--font-mono);letter-spacing:0.04em">Marża globalna:</label>
-      <input type="number" id="offer-global-margin" class="inline-edit" value="${o.global_margin}" min="0" max="100" step="0.5" style="width:70px" /> %
-      <button class="btn btn-sm" id="btn-apply-margin"><i class="fa-solid fa-check"></i> Zastosuj do wszystkich</button>
+  let infoHtml = `
+    <div class="dash-section">
+      <div class="dash-section-title"><i class="fa-solid fa-info-circle" style="font-size:12px;margin-right:4px"></i> Informacje</div>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Status</span>
+          <select id="offer-status-select" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-primary);font-weight:600">
+            ${Object.entries(OFFER_STATUS_CONFIG).map(([key, cfg]) =>
+              `<option value="${key}"${o.status === key ? " selected" : ""} style="color:${cfg.color}">${cfg.label}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Zamawiający</span>
+          <span>${esc(o.client || "—")}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Nr referencyjny</span>
+          <span>${esc(o.reference_number || "—")}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Termin składania</span>
+          <span>${o.deadline ? new Date(o.deadline + "T12:00:00").toLocaleDateString("pl-PL", { day: "numeric", month: "long", year: "numeric" }) : "—"}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Okres dostaw</span>
+          <span>${o.delivery_start || o.delivery_end ? [
+            o.delivery_start ? new Date(o.delivery_start + "T12:00:00").toLocaleDateString("pl-PL") : "",
+            o.delivery_end ? new Date(o.delivery_end + "T12:00:00").toLocaleDateString("pl-PL") : ""
+          ].filter(Boolean).join(" — ") : "—"}</span>
+        </div>
+        ${o.tags && o.tags.length > 0 ? `<div class="info-item" style="grid-column:1/-1"><span class="info-label">Tagi</span>${renderTagBadges(o.tags)}</div>` : ""}
+      </div>
     </div>
   `;
 
-  // Items table
-  let itemsHtml: string;
+  let marginHtml = `
+    <div class="dash-section">
+      <div class="dash-section-title"><i class="fa-solid fa-percent" style="font-size:12px;margin-right:4px"></i> Domyślna marża</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" id="offer-global-margin" value="${o.global_margin}" min="0" step="0.5" style="width:80px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)" />
+        <span>%</span>
+        <button class="btn btn-sm" id="btn-apply-margin"><i class="fa-solid fa-check"></i> Zastosuj do wszystkich</button>
+      </div>
+    </div>
+  `;
+
+  let itemsHtml = "";
+
   if (o.items.length === 0) {
     itemsHtml = `
-      <div class="empty-state" style="padding:50px 40px">
-        <div class="empty-state-icon"><i class="fa-solid fa-list-check"></i></div>
-        <h3>Brak pozycji</h3>
-        <p>Dodaj pozycje z cennika, ręcznie lub zaimportuj z pliku Excel.</p>
-        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
-          <button class="btn btn-primary" id="btn-empty-add-offer-item"><i class="fa-solid fa-plus"></i> Dodaj pozycję</button>
-          <button class="btn" id="btn-empty-import"><i class="fa-solid fa-file-excel"></i> Importuj z Excela</button>
+      <div class="dash-section">
+        <div class="empty-state-inline">
+          <div style="font-size:40px;margin-bottom:12px"><i class="fa-solid fa-inbox"></i></div>
+          <h3>Brak pozycji</h3>
+          <p>Dodaj pozycje z cennika lub zaimportuj z Excela.</p>
+          <button class="btn btn-primary btn-sm" id="btn-empty-add-offer-item"><i class="fa-solid fa-plus"></i> Dodaj pozycję</button>
+          <button class="btn btn-sm" id="btn-empty-import"><i class="fa-solid fa-file-excel"></i> Importuj</button>
         </div>
       </div>
     `;
   } else {
-    const rows = o.items.map((item, idx) => {
+    const rows = o.items.map((item, i) => {
       const valueNetto = item.offer_price * item.quantity;
-      const matchIcon = item.matched
-        ? '<span title="Dopasowano z cennika" style="color:var(--success)"><i class="fa-solid fa-circle-check"></i></span>'
-        : '<span title="Ręcznie" style="color:var(--warning)"><i class="fa-solid fa-triangle-exclamation"></i></span>';
+      const matched = item.product_id && item.matched;
+      const matchIcon = matched ? '<span style="color:var(--success)"><i class="fa-solid fa-circle-check"></i></span>' : '<span style="color:var(--muted)"><i class="fa-solid fa-circle-xmark"></i></span>';
 
       return `<tr data-item-id="${item.id}" draggable="true">
         <td><input type="checkbox" class="bulk-check" data-item-id="${item.id}" /></td>
-        <td class="drag-handle" title="Przeciągnij"><i class="fa-solid fa-grip-vertical"></i></td>
-        <td class="cell-lp">${idx + 1}.</td>
-        <td>
-          <strong>${esc(item.name)}</strong>
-          ${item.notes ? `<div class="cell-muted" style="font-size:10px">${esc(item.notes)}</div>` : ""}
-        </td>
-        <td><span class="cell-unit">${esc(item.unit)}</span></td>
+        <td><i class="fa-solid fa-grip" style="cursor:grab;color:var(--muted)"></i></td>
+        <td class="cell-lp">${i + 1}</td>
+        <td><strong>${esc(item.name)}</strong>${item.notes ? `<div class="cell-muted" style="font-size:11px">${esc(item.notes)}</div>` : ""}</td>
+        <td class="cell-unit">${esc(item.unit)}</td>
         <td><input type="number" class="inline-edit" value="${item.quantity}" min="0" step="1" data-offer-qty="${item.id}" style="width:70px" /></td>
         <td><input type="number" class="inline-edit" value="${item.purchase_price}" min="0" step="0.01" data-offer-purchase="${item.id}" style="width:90px" /></td>
         <td><input type="number" class="inline-edit" value="${item.margin_percent}" min="0" step="0.5" data-offer-margin="${item.id}" style="width:60px" /></td>
@@ -643,13 +827,13 @@ function renderDetail(oId: number): void {
       const existing = fuzzyMatchProduct(item.name);
       if (existing && existing.score >= 0.8) {
         // Update existing product price if our price is newer
-        const doUpdate = confirm(`Produkt "${existing.product.name}" już istnieje w cenniku.\nCena w cenniku: ${formatPrice(existing.product.purchase_price)} zł\nCena z oferty: ${formatPrice(item.purchase_price)} zł\n\nZaktualizować cenę w cenniku?`);
-        if (doUpdate) {
+        dangerModal(`Produkt "${existing.product.name}" już istnieje w cenniku.\nCena w cenniku: ${formatPrice(existing.product.purchase_price)} zł\nCena z oferty: ${formatPrice(item.purchase_price)} zł\n\nZaktualizować cenę w cenniku?`).then(async (confirmed) => {
+          if (!confirmed) return;
           updateProduct(existing.product.id, { purchase_price: item.purchase_price, catalog_price: item.offer_price });
           updateOfferItem(o.id, itemId, { product_id: existing.product.id, matched: true });
           showToast(`Zaktualizowano "${existing.product.name}" w cenniku`);
           renderDetail(o.id);
-        }
+        });
         return;
       }
 
@@ -726,6 +910,7 @@ function renderDetail(oId: number): void {
   initBulkSelect(page, o.id);
 }
 
+
 // ─── Drag & drop ─────────────────────────────────────────────────
 function initOfferDragDrop(page: HTMLElement, offerId: number): void {
   const tbody = page.querySelector<HTMLTableSectionElement>("tbody");
@@ -793,23 +978,10 @@ function initBulkSelect(page: HTMLElement, offerId: number): void {
 
     const label = count === 1 ? "pozycję" : count < 5 ? "pozycje" : "pozycji";
 
-    openModal(`
-      <h2 class="modal-title"><i class="fa-solid fa-triangle-exclamation"></i> Potwierdź usunięcie</h2>
-      <p>Czy na pewno chcesz usunąć <strong>${count}</strong> ${label} z oferty?</p>
-      <p class="cell-muted" style="font-size:12px">Tej operacji nie można cofnąć.</p>
-      <div class="modal-footer">
-        <button class="btn" id="btn-bulk-cancel">Anuluj</button>
-        <button class="btn btn-danger" id="btn-bulk-confirm">
-          <i class="fa-solid fa-trash"></i> Usuń ${count} ${label}
-        </button>
-      </div>
-    `);
-
-    document.getElementById("btn-bulk-cancel")!.addEventListener("click", closeModal);
-    document.getElementById("btn-bulk-confirm")!.addEventListener("click", () => {
+    dangerModal(`Czy na pewno chcesz usunąć ${count} ${label} z oferty?`).then(async (confirmed) => {
+      if (!confirmed) return;
       const ids = Array.from(checked).map((cb) => parseInt(cb.dataset.itemId!));
       ids.forEach((id) => removeOfferItem(offerId, id));
-      closeModal();
       showToast(`Usunięto ${count} pozycji`);
       renderDetail(offerId);
     });
@@ -897,28 +1069,20 @@ function renderProductSearchResults(container: HTMLElement, query: string, offer
     return;
   }
 
-  container.innerHTML = products.map((p) => {
-    const margin = p.catalog_price > 0 && p.purchase_price > 0
-      ? ((p.catalog_price - p.purchase_price) / p.purchase_price * 100).toFixed(1)
-      : null;
-
-    return `
-      <div class="search-result-item" data-add-product="${p.id}">
-        <div class="search-result-name">${esc(p.name)}</div>
-        <div class="search-result-details">
-          <span class="cell-unit">${esc(p.unit)}</span>
-          <span class="cell-mono">${formatPrice(p.purchase_price)} zł</span>
-          ${margin ? `<span class="cell-muted">marża kat. ${margin}%</span>` : ""}
-          ${p.supplier ? `<span class="cell-muted">${esc(p.supplier)}</span>` : ""}
-        </div>
-        <button class="btn btn-sm btn-primary search-result-add"><i class="fa-solid fa-plus"></i> Dodaj</button>
+  container.innerHTML = products.map((p) => `
+    <div class="search-result-item" data-product-id="${p.id}">
+      <div style="flex:1">
+        <div style="font-weight:600">${esc(p.name)}</div>
+        <div class="cell-muted" style="font-size:11px">${esc(p.unit)}</div>
+        ${p.sku ? `<div class="cell-muted" style="font-size:10px">SKU: ${esc(p.sku)}</div>` : ""}
       </div>
-    `;
-  }).join("");
+      <div style="text-align:right;font-weight:600;color:var(--accent)">${formatPrice(p.purchase_price)} zł</div>
+    </div>
+  `).join("");
 
-  container.querySelectorAll<HTMLElement>("[data-add-product]").forEach((el) => {
-    el.addEventListener("click", () => {
-      const p = getProductById(parseInt(el.dataset.addProduct!));
+  container.querySelectorAll<HTMLElement>(".search-result-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const p = getProductById(parseInt(item.dataset.productId!));
       if (!p) return;
       const margin = o.global_margin || 0;
       addOfferItem(offerId, {
@@ -934,6 +1098,7 @@ function renderProductSearchResults(container: HTMLElement, query: string, offer
         notes: "",
       });
       showToast(`Dodano: ${p.name}`);
+      closeModal();
       renderDetail(offerId);
     });
   });
@@ -944,72 +1109,87 @@ function renderManualItemTab(container: HTMLElement, offerId: number): void {
   if (!o) return;
 
   container.innerHTML = `
-    <div style="margin-top:14px">
-      <div class="field autocomplete-wrap">
-        <label>Nazwa pozycji</label>
-        <input type="text" id="f-oi-name" placeholder="np. Jajka kurze M" autocomplete="off" />
-        <div id="f-oi-autocomplete" class="autocomplete-dropdown" style="display:none"></div>
-      </div>
-      <div class="field-row field-row-3">
-        <div class="field"><label>Ilość</label><input type="number" step="1" id="f-oi-qty" value="1" min="0" /></div>
-        <div class="field"><label>Jednostka</label>
-          <select id="f-oi-unit">${["szt", "kg", "l", "opak", "paleta", "karton", "ryza", "para", "m", "kpl"].map((u) => `<option value="${u}">${u}</option>`).join("")}</select>
-        </div>
-        <div class="field"><label>VAT</label>
-          <select id="f-oi-vat"><option value="23">23%</option><option value="8">8%</option><option value="5">5%</option><option value="0">0%</option></select>
-        </div>
-      </div>
-      <div class="field-row field-row-2">
-        <div class="field"><label>Cena zakupu netto</label><input type="number" step="0.01" id="f-oi-purchase" placeholder="0,00" /></div>
-        <div class="field"><label>Marża %</label><input type="number" step="0.5" id="f-oi-margin" value="${o.global_margin}" /></div>
+    <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field">
+        <label>Nazwa*</label>
+        <input type="text" id="f-oi-name" placeholder="Nazwa produktu" />
+        <div id="ac-dropdown" class="autocomplete-dropdown" style="display:none;position:absolute;max-height:200px;overflow-y:auto"></div>
       </div>
       <div class="field">
-        <label>Notatki</label>
-        <input type="text" id="f-oi-notes" placeholder="opcjonalnie" />
+        <label>Jednostka</label>
+        <select id="f-oi-unit">
+          <option value="szt">szt</option>
+          <option value="kg">kg</option>
+          <option value="l">l</option>
+          <option value="m">m</option>
+          <option value="m2">m²</option>
+          <option value="opak">opak</option>
+          <option value="godz">godz</option>
+          <option value="suw">suw</option>
+          <option value="kpl">kpl</option>
+        </select>
       </div>
-      <button class="btn btn-primary" id="btn-oi-save" style="width:100%"><i class="fa-solid fa-plus"></i> Dodaj do oferty</button>
+      <div class="field">
+        <label>Ilość*</label>
+        <input type="number" id="f-oi-qty" value="1" min="0" step="1" />
+      </div>
+      <div class="field">
+        <label>Cena zakupu*</label>
+        <input type="number" id="f-oi-purchase" value="0" min="0" step="0.01" />
+      </div>
+      <div class="field">
+        <label>Marża (%)</label>
+        <input type="number" id="f-oi-margin" value="${o.global_margin}" min="0" step="0.5" />
+      </div>
+      <div class="field">
+        <label>VAT</label>
+        <select id="f-oi-vat">
+          <option value="0">0%</option>
+          <option value="5">5%</option>
+          <option value="8">8%</option>
+          <option value="23" selected>23%</option>
+        </select>
+      </div>
+      <div class="field" style="grid-column:1/-1">
+        <label>Notatki</label>
+        <textarea id="f-oi-notes" placeholder="Dodatkowe informacje..." rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn" id="btn-oi-save"><i class="fa-solid fa-plus"></i> Dodaj pozycję</button>
     </div>
   `;
 
-  setTimeout(() => (document.getElementById("f-oi-name") as HTMLInputElement)?.focus(), 50);
-
-  // Autocomplete from product catalog
   const nameInput = document.getElementById("f-oi-name") as HTMLInputElement;
-  const acDropdown = document.getElementById("f-oi-autocomplete")!;
-  let acTimeout: ReturnType<typeof setTimeout>;
+  const acDropdown = document.getElementById("ac-dropdown")!;
 
+  // Autocomplete for product name
   nameInput.addEventListener("input", () => {
-    clearTimeout(acTimeout);
-    acTimeout = setTimeout(() => {
-      const query = nameInput.value.trim();
-      if (query.length < 2) { acDropdown.style.display = "none"; return; }
+    const query = nameInput.value.trim().toLowerCase();
+    if (query.length < 2) { acDropdown.style.display = "none"; return; }
 
-      const products = getProducts({ search: query }).slice(0, 8);
-      if (products.length === 0) { acDropdown.style.display = "none"; return; }
+    const matching = getProducts({ search: query }).slice(0, 5);
+    if (matching.length === 0) { acDropdown.style.display = "none"; return; }
 
-      acDropdown.style.display = "block";
-      acDropdown.innerHTML = products.map((p) =>
-        `<div class="autocomplete-item" data-ac-product="${p.id}">
-          <span>${esc(p.name)}</span>
-          <span class="price">${formatPrice(p.purchase_price)} zł/${esc(p.unit)}</span>
-        </div>`
-      ).join("");
+    acDropdown.innerHTML = matching.map((p) =>
+      `<div class="autocomplete-item" data-ac-product="${p.id}">${esc(p.name)}<span class="cell-muted" style="font-size:10px"> (${formatPrice(p.purchase_price)} zł)</span></div>`
+    ).join("");
+    acDropdown.style.display = "block";
 
-      acDropdown.querySelectorAll<HTMLElement>("[data-ac-product]").forEach((el) => {
-        el.addEventListener("click", () => {
-          const p = getProductById(parseInt(el.dataset.acProduct!));
-          if (!p) return;
-          nameInput.value = p.name;
-          (document.getElementById("f-oi-unit") as HTMLSelectElement).value = p.unit;
-          (document.getElementById("f-oi-purchase") as HTMLInputElement).value = String(p.purchase_price);
-          (document.getElementById("f-oi-vat") as HTMLSelectElement).value = String(p.vat_rate);
-          const margin = parseFloat((document.getElementById("f-oi-margin") as HTMLInputElement).value) || 0;
-          const offerPrice = Math.round(p.purchase_price * (1 + margin / 100) * 100) / 100;
-          (document.getElementById("f-oi-purchase") as HTMLInputElement).value = String(p.purchase_price);
-          acDropdown.style.display = "none";
-        });
+    acDropdown.querySelectorAll<HTMLElement>(".autocomplete-item").forEach((el) => {
+      el.addEventListener("click", () => {
+        const p = getProductById(parseInt(el.dataset.acProduct!));
+        if (!p) return;
+        nameInput.value = p.name;
+        (document.getElementById("f-oi-unit") as HTMLSelectElement).value = p.unit;
+        (document.getElementById("f-oi-purchase") as HTMLInputElement).value = String(p.purchase_price);
+        (document.getElementById("f-oi-vat") as HTMLSelectElement).value = String(p.vat_rate);
+        const margin = parseFloat((document.getElementById("f-oi-margin") as HTMLInputElement).value) || 0;
+        const offerPrice = Math.round(p.purchase_price * (1 + margin / 100) * 100) / 100;
+        (document.getElementById("f-oi-purchase") as HTMLInputElement).value = String(p.purchase_price);
+        acDropdown.style.display = "none";
       });
-    }, 150);
+    });
   });
 
   // Hide autocomplete on blur (with delay for click events)
@@ -1043,118 +1223,6 @@ function renderManualItemTab(container: HTMLElement, offerId: number): void {
   });
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// OFFER MODAL (create / edit)
-// ═══════════════════════════════════════════════════════════════════
-function openOfferModal(o?: Offer): void {
-  const isEdit = !!o;
-
-  openModal(`
-    <h2 class="modal-title">${isEdit ? "Ustawienia oferty" : "Nowa oferta"}</h2>
-    <div class="field">
-      <label>Nazwa przetargu</label>
-      <input type="text" id="f-o-name" value="${esc(o?.name ?? "")}" placeholder="np. Dostawa art. spożywczych do SP nr 7" />
-    </div>
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Zamawiający</label>
-        ${renderClientPicker("f-o-client", o?.client ?? "")}
-      </div>
-      <div class="field">
-        <label>Nr referencyjny (BZP/TED)</label>
-        <input type="text" id="f-o-ref" value="${esc(o?.reference_number ?? "")}" placeholder="np. BZP/2025/03/1234" />
-      </div>
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Status</label>
-        <select id="f-o-status">
-          ${Object.entries(OFFER_STATUS_CONFIG).map(([key, cfg]) =>
-            `<option value="${key}"${(o?.status || "robocza") === key ? " selected" : ""}>${cfg.label}</option>`
-          ).join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label>Marża domyślna (%)</label>
-        <input type="number" step="0.5" min="0" id="f-o-margin" value="${o?.global_margin ?? 15}" />
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Termin składania ofert</label>
-      <input type="date" id="f-o-deadline" value="${o?.deadline ?? ""}" />
-    </div>
-
-    <div class="field-row field-row-2">
-      <div class="field">
-        <label>Początek dostaw</label>
-        <input type="date" id="f-o-del-start" value="${o?.delivery_start ?? ""}" />
-      </div>
-      <div class="field">
-        <label>Koniec dostaw</label>
-        <input type="date" id="f-o-del-end" value="${o?.delivery_end ?? ""}" />
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Notatki</label>
-      <textarea id="f-o-notes" placeholder="Dodatkowe informacje...">${esc(o?.notes ?? "")}</textarea>
-    </div>
-    <div class="field">
-      <label>Tagi</label>
-      ${renderTagPicker(o?.tags ?? [], "tag-picker-o")}
-    </div>
-    <div class="modal-footer">
-      <button class="btn" id="btn-o-cancel">Anuluj</button>
-      <button class="btn btn-primary" id="btn-o-save">${isEdit ? "Zapisz" : "Utwórz"}</button>
-    </div>
-  `, undefined, true);
-
-  setTimeout(() => (document.getElementById("f-o-name") as HTMLInputElement)?.focus(), 80);
-  document.getElementById("btn-o-cancel")!.addEventListener("click", closeModal);
-
-  const saveFn = () => {
-    const name = (document.getElementById("f-o-name") as HTMLInputElement).value.trim();
-    if (!name) { (document.getElementById("f-o-name") as HTMLInputElement).focus(); return; }
-
-    const input: OfferInput = {
-      name,
-      client: (document.getElementById("f-o-client") as HTMLInputElement).value.trim(),
-      reference_number: (document.getElementById("f-o-ref") as HTMLInputElement).value.trim(),
-      status: (document.getElementById("f-o-status") as HTMLSelectElement).value,
-      notes: (document.getElementById("f-o-notes") as HTMLTextAreaElement).value.trim(),
-      global_margin: parseFloat((document.getElementById("f-o-margin") as HTMLInputElement).value) || 0,
-      transport_cost: o?.transport_cost || 0,
-      storage_cost: o?.storage_cost || 0,
-      other_costs: o?.other_costs || 0,
-      deadline: (document.getElementById("f-o-deadline") as HTMLInputElement).value,
-      delivery_start: (document.getElementById("f-o-del-start") as HTMLInputElement).value,
-      delivery_end: (document.getElementById("f-o-del-end") as HTMLInputElement).value,
-      tags: getSelectedTags("tag-picker-o"),
-    };
-
-    // Auto-save client to database if new
-    if (input.client) quickAddClientFromName(input.client);
-
-    if (isEdit && o) {
-      updateOffer(o.id, input);
-      showToast("Oferta zaktualizowana");
-    } else {
-      const newO = addOffer(input);
-      activeOfferId = newO.id;
-      showToast("Oferta utworzona");
-    }
-
-    closeModal();
-    render();
-  };
-
-  document.getElementById("btn-o-save")!.addEventListener("click", saveFn);
-  document.getElementById("modal-box")!.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") { e.preventDefault(); saveFn(); }
-  });
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // EXCEL IMPORT
@@ -1611,6 +1679,7 @@ async function fillSourceExcel(o: Offer): Promise<void> {
   }
 }
 
+
 // ═══════════════════════════════════════════════════════════════════
 // PDF EXPORT
 // ═══════════════════════════════════════════════════════════════════
@@ -1738,7 +1807,7 @@ function buildOfferPdfHtml(o: Offer, company: CompanySettings, totals: OfferTota
 <body>
 
 <div class="print-banner">
-  📄 Aby zapisać jako PDF: <a onclick="window.print()">Kliknij tutaj</a> lub użyj <strong>Ctrl+P</strong> → "Zapisz jako PDF"
+  Aby zapisać jako PDF: <a onclick="window.print()">Kliknij tutaj</a> lub użyj <strong>Ctrl+P</strong> → "Zapisz jako PDF"
 </div>
 
 <div class="header">
@@ -1905,6 +1974,7 @@ async function exportOfferCsv(o: Offer): Promise<void> {
     console.error("CSV export error:", err);
   }
 }
+
 
 // ═══════════════════════════════════════════════════════════════════
 // OFFER COMPARISON
@@ -2097,6 +2167,7 @@ function openFromOfferTemplateModal(): void {
     const newO = createOfferFromTemplate(tmplId, name, client);
     if (newO) {
       activeOfferId = newO.id;
+      offerFormMode = false;
       showToast("Oferta utworzona z szablonu");
       closeModal();
       render();
@@ -2157,3 +2228,4 @@ ${company.email || ""}`.trim();
     showToast("Skopiowano do schowka");
   });
 }
+
