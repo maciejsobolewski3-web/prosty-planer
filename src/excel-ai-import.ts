@@ -106,11 +106,27 @@ async function readExcelFile(filePath: string): Promise<ParsedSheet[]> {
   return sheets;
 }
 
+// ─── Auth helper ────────────────────────────────────────────────
+function getAuthToken(): string | null {
+  try {
+    const session = localStorage.getItem("pp_auth_session");
+    if (session) {
+      const parsed = JSON.parse(session);
+      return parsed.token || parsed.access_token || null;
+    }
+  } catch {}
+  return null;
+}
+
 // ─── Call AI to analyze Excel structure ─────────────────────────
 async function callAIForExcelAnalysis(excelText: string, mode: string): Promise<string> {
+  const token = getAuthToken();
   const response = await fetch("https://prostyprzetarg.pl/api/planer/excel-analyze", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({
       excel_text: excelText,
       mode: mode,
@@ -139,19 +155,23 @@ function parseAIResponse(raw: string): { analysis: string; items: ProposedItem[]
   // Try direct parse
   try {
     const parsed = JSON.parse(jsonStr.trim());
-    const items: ProposedItem[] = (parsed.items || []).map((item: any) => ({
-      name: item.name || "",
-      unit: item.unit || "szt",
-      price: parseFloat(item.price) || 0,
-      vat_rate: parseFloat(item.vat_rate) || 23,
-      supplier: item.supplier || "",
-      category: item.category || "",
-      notes: item.notes || "",
-      purchase_price: parseFloat(item.price) || 0,
-      catalog_price: parseFloat(item.catalog_price) || 0,
-      sku: item.sku || "",
-      already_exists: false,
-    }));
+    const items: ProposedItem[] = (parsed.items || []).map((item: any) => {
+      // AI may return price as "price", "price_netto", "purchase_price", or "cena"
+      const rawPrice = parseFloat(item.price ?? item.price_netto ?? item.purchase_price ?? item.cena ?? item.cena_netto) || 0;
+      return {
+        name: item.name || item.nazwa || "",
+        unit: item.unit || item.jednostka || "szt",
+        price: rawPrice,
+        vat_rate: parseFloat(item.vat_rate ?? item.vat ?? item.stawka_vat) || 23,
+        supplier: item.supplier || item.dostawca || "",
+        category: item.category || item.kategoria || "",
+        notes: item.notes || item.uwagi || "",
+        purchase_price: rawPrice,
+        catalog_price: parseFloat(item.catalog_price ?? item.cena_katalogowa) || 0,
+        sku: item.sku || item.kod || "",
+        already_exists: false,
+      };
+    });
 
     // Check which items already exist
     const mode = getAppMode();
