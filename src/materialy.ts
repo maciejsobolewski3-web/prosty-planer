@@ -245,10 +245,10 @@ function renderTable(materials: Material[], categories: typeof getCategories ext
 
   let html = `<table class="materials-table"><thead><tr>`;
   html += `<th style="width:40px"><input type="checkbox" id="select-all" /></th>`;
-  html += renderSortableHeader("name", "Nazwa", matSortState);
-  html += renderSortableHeader("category_id", "Kategoria", matSortState);
+  html += renderSortableHeader("Nazwa", "name", matSortState);
+  html += renderSortableHeader("Kategoria", "category_id", matSortState);
   html += `<th>Cena netto</th>`;
-  html += renderSortableHeader("supplier", "Dostawca", matSortState);
+  html += renderSortableHeader("Dostawca", "supplier", matSortState);
   html += `<th style="width:80px">Akcje</th>`;
   html += `</tr></thead><tbody>`;
 
