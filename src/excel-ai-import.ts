@@ -39,7 +39,10 @@ interface ProposedItem {
 }
 
 // ─── Parse Excel to structured text for AI ──────────────────────
-function sheetsToAIText(sheets: ParsedSheet[]): string {
+/** Max rows to send to AI in a single request */
+const AI_ROW_LIMIT = 200;
+
+function sheetsToAIText(sheets: ParsedSheet[], offset = 0, limit = AI_ROW_LIMIT): string {
   let text = "";
   for (const sheet of sheets) {
     text += `\n=== ARKUSZ: "${sheet.name}" (${sheet.totalRows} wierszy) ===\n`;
@@ -49,20 +52,33 @@ function sheetsToAIText(sheets: ParsedSheet[]): string {
       text += `NAGŁÓWKI: ${sheet.headers.map((h, i) => `[${i}]"${h}"`).join(" | ")}\n`;
     }
 
-    // Show first 50 rows as sample
-    const sampleRows = sheet.rows.slice(0, 50);
-    text += `\nPIERWSZE ${sampleRows.length} WIERSZY:\n`;
+    const sampleRows = sheet.rows.slice(offset, offset + limit);
+    text += `\nWIERSZE ${offset + 1}–${offset + sampleRows.length} z ${sheet.totalRows}:\n`;
     for (let r = 0; r < sampleRows.length; r++) {
       const row = sampleRows[r];
       const cells = row.map((cell, i) => `[${i}]${cell}`).join(" | ");
-      text += `  ${r + 1}: ${cells}\n`;
+      text += `  ${offset + r + 1}: ${cells}\n`;
     }
 
-    if (sheet.totalRows > 50) {
-      text += `  ... (jeszcze ${sheet.totalRows - 50} wierszy)\n`;
+    if (offset + sampleRows.length < sheet.totalRows) {
+      text += `  ... (jeszcze ${sheet.totalRows - offset - sampleRows.length} wierszy)\n`;
     }
   }
   return text;
+}
+
+/** Clean price string: "12 345,67" → 12345.67, "1.234,56" → 1234.56 */
+function sanitizePrice(val: any): number {
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  if (typeof val !== "string") return 0;
+  let s = val.trim().replace(/\s/g, ""); // remove spaces
+  // Detect European format: "1.234,56" or "1234,56"
+  if (s.includes(",") && (!s.includes(".") || s.lastIndexOf(",") > s.lastIndexOf("."))) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  }
+  // Remove any remaining non-numeric except dot and minus
+  s = s.replace(/[^0-9.\-]/g, "");
+  return parseFloat(s) || 0;
 }
 
 // ─── Read and parse Excel file ──────────────────────────────────
@@ -157,33 +173,35 @@ function parseAIResponse(raw: string): { analysis: string; items: ProposedItem[]
     const parsed = JSON.parse(jsonStr.trim());
     const items: ProposedItem[] = (parsed.items || []).map((item: any) => {
       // AI may return price as "price", "price_netto", "purchase_price", or "cena"
-      const rawPrice = parseFloat(item.price ?? item.price_netto ?? item.purchase_price ?? item.cena ?? item.cena_netto) || 0;
+      const rawPrice = sanitizePrice(item.price ?? item.price_netto ?? item.purchase_price ?? item.cena ?? item.cena_netto);
       return {
         name: item.name || item.nazwa || "",
         unit: item.unit || item.jednostka || "szt",
         price: rawPrice,
-        vat_rate: parseFloat(item.vat_rate ?? item.vat ?? item.stawka_vat) || 23,
+        vat_rate: sanitizePrice(item.vat_rate ?? item.vat ?? item.stawka_vat) || 23,
         supplier: item.supplier || item.dostawca || "",
         category: item.category || item.kategoria || "",
         notes: item.notes || item.uwagi || "",
         purchase_price: rawPrice,
-        catalog_price: parseFloat(item.catalog_price ?? item.cena_katalogowa) || 0,
+        catalog_price: sanitizePrice(item.catalog_price ?? item.cena_katalogowa),
         sku: item.sku || item.kod || "",
         already_exists: false,
       };
     });
 
-    // Check which items already exist
+    // Check which items already exist — fetch data ONCE, not per item
     const mode = getAppMode();
-    for (const item of items) {
-      if (mode === "handlowy") {
+    if (mode === "handlowy") {
+      for (const item of items) {
         const match = fuzzyMatchProduct(item.name);
         if (match && match.score >= 0.7) {
           item.already_exists = true;
           item.existing_name = match.product.name;
         }
-      } else {
-        const mats = getMaterials({});
+      }
+    } else {
+      const mats = getMaterials({});
+      for (const item of items) {
         const lowerName = item.name.toLowerCase();
         const existing = mats.find((m) => m.name.toLowerCase().includes(lowerName) || lowerName.includes(m.name.toLowerCase()));
         if (existing) {
@@ -248,13 +266,19 @@ function renderImportModal(analysis: string, items: ProposedItem[], onImport: (s
               <tr style="${item.already_exists ? 'opacity:0.6' : ''}">
                 <td><input type="checkbox" class="excel-ai-check" data-idx="${idx}" ${item.already_exists ? '' : 'checked'} /></td>
                 <td>
-                  <strong>${esc(item.name)}</strong>
+                  <input type="text" class="excel-ai-edit" data-idx="${idx}" data-field="name" value="${esc(item.name)}" style="width:100%;border:1px solid transparent;background:transparent;color:inherit;padding:2px 4px;font-weight:600;font-size:12px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='transparent'" />
                   ${item.sku ? `<div style="font-size:10px;color:var(--text-secondary)">SKU: ${esc(item.sku)}</div>` : ""}
                 </td>
-                <td>${esc(item.unit)}</td>
-                <td class="cell-mono">${formatPrice(item.price)} zł</td>
+                <td>
+                  <input type="text" class="excel-ai-edit" data-idx="${idx}" data-field="unit" value="${esc(item.unit)}" style="width:50px;border:1px solid transparent;background:transparent;color:inherit;padding:2px 4px;text-align:center;font-size:12px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='transparent'" />
+                </td>
+                <td>
+                  <input type="number" step="0.01" class="excel-ai-edit cell-mono" data-idx="${idx}" data-field="price" value="${item.price.toFixed(2)}" style="width:80px;border:1px solid transparent;background:transparent;color:inherit;padding:2px 4px;text-align:right;font-size:12px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='transparent'" />
+                </td>
                 <td>${item.vat_rate}%</td>
-                <td>${esc(item.supplier)}</td>
+                <td>
+                  <input type="text" class="excel-ai-edit" data-idx="${idx}" data-field="supplier" value="${esc(item.supplier)}" style="width:100%;border:1px solid transparent;background:transparent;color:inherit;padding:2px 4px;font-size:12px" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='transparent'" />
+                </td>
                 <td>${item.already_exists
                   ? `<span style="color:var(--warning)" title="Dopasowano: ${esc(item.existing_name || '')}"><i class="fa-solid fa-triangle-exclamation"></i> W bazie</span>`
                   : `<span style="color:var(--success)"><i class="fa-solid fa-plus-circle"></i> Nowy</span>`
@@ -287,6 +311,23 @@ function renderImportModal(analysis: string, items: ProposedItem[], onImport: (s
   });
 
   document.getElementById("excel-ai-import")?.addEventListener("click", () => {
+    // Collect edits from inline inputs
+    document.querySelectorAll<HTMLInputElement>(".excel-ai-edit").forEach((input) => {
+      const idx = parseInt(input.dataset.idx!);
+      const field = input.dataset.field!;
+      if (!items[idx]) return;
+      if (field === "price") {
+        items[idx].price = parseFloat(input.value) || 0;
+        items[idx].purchase_price = items[idx].price;
+      } else if (field === "name") {
+        items[idx].name = input.value.trim();
+      } else if (field === "unit") {
+        items[idx].unit = input.value.trim() || "szt";
+      } else if (field === "supplier") {
+        items[idx].supplier = input.value.trim();
+      }
+    });
+
     const selected: ProposedItem[] = [];
     document.querySelectorAll<HTMLInputElement>(".excel-ai-check:checked").forEach((cb) => {
       const idx = parseInt(cb.dataset.idx!);
@@ -370,33 +411,53 @@ export async function openSmartExcelImport(): Promise<void> {
       return;
     }
 
-    // 4. Convert to AI-readable text
-    const aiText = sheetsToAIText(sheets);
+    // 4. Convert to AI-readable text — batch if large
     const mode = getAppMode();
+    const totalRows = sheets.reduce((sum, s) => sum + s.totalRows, 0);
+    const batches = Math.ceil(totalRows / AI_ROW_LIMIT);
 
-    // Update loading message
-    openModal(
-      `<i class="fa-solid fa-file-excel"></i> Import z Excel`,
-      `<div style="text-align:center;padding:40px">
-        <div class="spinner" style="margin:0 auto 16px"></div>
-        <p style="font-size:14px;font-weight:600">AI analizuje plik...</p>
-        <p style="font-size:12px;color:var(--text-secondary)">
-          ${sheets.map((s) => `"${s.name}" (${s.totalRows} wierszy)`).join(", ")}
-        </p>
-      </div>`
-    );
+    let allItems: ProposedItem[] = [];
+    let lastAnalysis = "";
 
-    // 5. Ask AI to analyze
-    const aiResponse = await callAIForExcelAnalysis(aiText, mode);
-    const { analysis, items } = parseAIResponse(aiResponse);
+    for (let batch = 0; batch < batches; batch++) {
+      const offset = batch * AI_ROW_LIMIT;
+      const aiText = sheetsToAIText(sheets, offset, AI_ROW_LIMIT);
+
+      // Update loading message with progress
+      openModal(
+        `<i class="fa-solid fa-file-excel"></i> Import z Excel`,
+        `<div style="text-align:center;padding:40px">
+          <div class="spinner" style="margin:0 auto 16px"></div>
+          <p style="font-size:14px;font-weight:600">AI analizuje plik...</p>
+          <p style="font-size:12px;color:var(--text-secondary)">
+            ${sheets.map((s) => `"${s.name}" (${s.totalRows} wierszy)`).join(", ")}
+          </p>
+          ${batches > 1 ? `<p style="font-size:12px;color:var(--accent);margin-top:8px">Przetwarzanie partii ${batch + 1} z ${batches} (wiersze ${offset + 1}–${Math.min(offset + AI_ROW_LIMIT, totalRows)})</p>` : ""}
+        </div>`
+      );
+
+      // 5. Ask AI to analyze
+      const aiResponse = await callAIForExcelAnalysis(aiText, mode);
+      const { analysis, items } = parseAIResponse(aiResponse);
+      lastAnalysis = analysis;
+      allItems = allItems.concat(items);
+    }
+
+    // Deduplicate by name (in case batches overlap)
+    const seen = new Set<string>();
+    allItems = allItems.filter((item) => {
+      const key = item.name.toLowerCase().trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
     // 6. Show results modal
-    renderImportModal(analysis, items, (selected) => {
+    renderImportModal(lastAnalysis, allItems, (selected) => {
       executeImport(selected);
     });
 
   } catch (e: any) {
-    // Fallback: if AI fails, do simple column-based import
     openModal(
       `<i class="fa-solid fa-exclamation-triangle"></i> Błąd importu`,
       `<div>
@@ -404,9 +465,14 @@ export async function openSmartExcelImport(): Promise<void> {
         <pre style="font-size:11px;background:var(--bg-secondary);padding:12px;border-radius:var(--radius);overflow:auto;max-height:200px">${esc(e.message)}</pre>
         <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
           <button class="btn" id="import-err-close">Zamknij</button>
+          <button class="btn btn-primary" id="import-err-retry"><i class="fa-solid fa-rotate-right"></i> Spróbuj ponownie</button>
         </div>
       </div>`
     );
     document.getElementById("import-err-close")?.addEventListener("click", closeModal);
+    document.getElementById("import-err-retry")?.addEventListener("click", () => {
+      closeModal();
+      openSmartExcelImport();
+    });
   }
 }
