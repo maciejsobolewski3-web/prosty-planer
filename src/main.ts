@@ -1,7 +1,7 @@
 import "./styles.css";
 import { initStore, getCategories, getAllMaterialsCount, getMaterialCountByCategory, getZlecenia, getMaterials, getLabor, getClients, popUndo, getGlobalNotes, saveGlobalNotes, exportDatabase } from "./store";
 import { initModalBackdrop, closeModal, esc, openModal, showToast } from "./ui";
-import { initMaterialy, setFilterView, setFilterCategory, setSearch, onSidebarUpdate as onMatSidebarUpdate } from "./materialy";
+import { initMaterialy, setFilterView, setFilterCategory, setSearch, onSidebarUpdate as onMatSidebarUpdate, onNavigate as onMatNavigate } from "./materialy";
 import { initKategorie, refreshKategorie, onSidebarUpdate as onCatSidebarUpdate } from "./kategorie";
 import { initRobocizny, setLaborSearch } from "./robocizny";
 import { initZlecenia } from "./zlecenia";
@@ -15,7 +15,7 @@ import { checkForUpdates } from "./updater";
 import { openSmartExcelImport } from "./excel-ai-import";
 // Trade mode imports
 import { getAppMode, setAppMode, seedTradeDefaults, getAllProductsCount, getOffers, getProducts } from "./store-trade";
-import { initProducts, setProductFilterView, setProductFilterCategory, setProductSearch, onProductSidebarUpdate } from "./products";
+import { initProducts, setProductFilterView, setProductFilterCategory, setProductSearch, onProductSidebarUpdate, onProductNavigate } from "./products";
 import { initCenniki } from "./cenniki";
 import { initOffers } from "./offers";
 import { initKlienci, onKlienciNavigate } from "./klienci";
@@ -835,6 +835,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   onCatSidebarUpdate(() => {
     renderSidebar();
   });
+
+  // Wire navigate callbacks (for "Import z cennika" buttons)
+  onMatNavigate((page: string) => navigateTo(page));
+  onProductNavigate((page: string) => navigateTo(page));
 
   // Wire dashboard navigation
   onDashboardNavigate(

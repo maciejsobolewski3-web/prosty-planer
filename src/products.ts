@@ -100,11 +100,17 @@ function renderList(): void {
 
   document.getElementById("topbar-actions")!.innerHTML = `
     <button class="btn btn-sm" id="btn-export-csv" title="Eksport CSV"><i class="fa-solid fa-file-csv"></i> CSV</button>
+    <button class="btn btn-secondary" id="btn-import-cennik">
+      <i class="fa-solid fa-file-excel"></i> Import z cennika
+    </button>
     <button class="btn btn-primary" id="btn-add-product">
       <i class="fa-solid fa-plus"></i> Dodaj produkt
     </button>
   `;
   document.getElementById("btn-export-csv")?.addEventListener("click", exportProductsCSV);
+  document.getElementById("btn-import-cennik")!.addEventListener("click", () => {
+    if (_navigateCb) _navigateCb("cenniki");
+  });
   document.getElementById("btn-add-product")!.addEventListener("click", () => openProductDetail());
 
   if (products.length === 0) {
@@ -602,9 +608,14 @@ async function exportProductsCSV(): Promise<void> {
 
 // ─── Sidebar update callback ────────────────────────────────────
 let _sidebarUpdateCb: (() => void) | null = null;
+let _navigateCb: ((page: string) => void) | null = null;
 
 export function onProductSidebarUpdate(cb: () => void): void {
   _sidebarUpdateCb = cb;
+}
+
+export function onProductNavigate(cb: (page: string) => void): void {
+  _navigateCb = cb;
 }
 
 function notifySidebarUpdate(): void {

@@ -66,9 +66,14 @@ export function setSearch(search: string): void {
 }
 
 let _sidebarUpdateCb: (() => void) | null = null;
+let _navigateCb: ((page: string) => void) | null = null;
 
 export function onSidebarUpdate(cb: () => void): void {
   _sidebarUpdateCb = cb;
+}
+
+export function onNavigate(cb: (page: string) => void): void {
+  _navigateCb = cb;
 }
 
 function notifySidebarUpdate(): void {
@@ -112,12 +117,18 @@ function renderList(): void {
     <button class="btn btn-primary" id="btn-add-material">
       <i class="fa-solid fa-plus"></i> Dodaj materiał
     </button>
+    <button class="btn btn-secondary" id="btn-import-cennik">
+      <i class="fa-solid fa-file-excel"></i> Import z cennika
+    </button>
     <button class="btn btn-secondary" id="btn-import-csv">
       <i class="fa-solid fa-file-import"></i> Import CSV
     </button>
     <input type="file" id="csv-file-input" accept=".csv" style="display:none" />
   `;
   document.getElementById("btn-add-material")!.addEventListener("click", () => openDetail());
+  document.getElementById("btn-import-cennik")!.addEventListener("click", () => {
+    if (_navigateCb) _navigateCb("cenniki");
+  });
   document.getElementById("btn-import-csv")!.addEventListener("click", () => {
     (document.getElementById("csv-file-input") as HTMLInputElement).click();
   });
