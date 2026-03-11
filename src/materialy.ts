@@ -243,7 +243,7 @@ function renderTable(materials: Material[], categories: typeof getCategories ext
   });
   const groups = groupMaterials(sortedMaterials);
 
-  let html = `<table class="materials-table"><thead><tr>`;
+  let html = `<table class="data-table"><thead><tr>`;
   html += `<th style="width:40px"><input type="checkbox" id="select-all" /></th>`;
   html += renderSortableHeader("Nazwa", "name", matSortState);
   html += renderSortableHeader("Kategoria", "category_id", matSortState);
