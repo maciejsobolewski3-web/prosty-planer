@@ -886,6 +886,28 @@ function openBulkPriceModal(): void {
 }
 
 // ─── CSV import ──────────────────────────────────────────────────
+
+/** Parse a CSV line respecting quoted fields (handles commas inside quotes) */
+function parseCSVLine(line: string): string[] {
+  const cols: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === "," || ch === ";") { cols.push(current.trim()); current = ""; }
+      else { current += ch; }
+    }
+  }
+  cols.push(current.trim());
+  return cols;
+}
+
 function importMaterialsFromCSV(csv: string): void {
   const lines = csv.trim().split("\n");
   if (lines.length < 2) {
@@ -893,7 +915,7 @@ function importMaterialsFromCSV(csv: string): void {
     return;
   }
 
-  const headers = lines[0].toLowerCase().split(",").map((h) => h.trim());
+  const headers = parseCSVLine(lines[0].toLowerCase());
   const nameIdx = headers.indexOf("nazwa");
   const priceIdx = headers.indexOf("cena");
   const unitIdx = headers.indexOf("jednostka");
@@ -906,7 +928,7 @@ function importMaterialsFromCSV(csv: string): void {
 
   let added = 0;
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(",").map((c) => c.trim());
+    const cols = parseCSVLine(lines[i]);
     if (cols.length < nameIdx + 1 || !cols[nameIdx]) continue;
 
     const input: MaterialInput = {

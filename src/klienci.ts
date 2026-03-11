@@ -58,6 +58,7 @@ export function initKlienci(search?: string): void {
 }
 
 function render(): void {
+  _clientStatsCache = null; // invalidate on each render
   if (view === "edit") {
     renderEdit();
   } else if (view === "detail" && detailId !== null) {
@@ -205,37 +206,46 @@ function renderList(): void {
 }
 
 // ─── Client stats (zlecenia + offers count & value) ────────────
-function getClientStats(clientName: string): { count: number; value: number } {
-  const lower = clientName.toLowerCase().trim();
-  let count = 0;
-  let value = 0;
+// Pre-compute stats for all clients in one pass (O(n) instead of O(n*m))
+function buildAllClientStats(): Map<string, { count: number; value: number }> {
+  const map = new Map<string, { count: number; value: number }>();
+  const getOrCreate = (name: string) => {
+    const key = name.toLowerCase().trim();
+    if (!map.has(key)) map.set(key, { count: 0, value: 0 });
+    return map.get(key)!;
+  };
 
   for (const z of getZlecenia()) {
-    if (z.client.toLowerCase().trim() === lower) {
-      count++;
-      for (const item of z.items) {
-        const markup =
-          item.type === "material" ? z.markup_materials || 0 : z.markup_labor || 0;
-        value +=
-          brutto(
-            (item.price_netto * (1 + markup / 100) * item.quantity),
-            item.vat_rate
-          );
-      }
+    if (!z.client) continue;
+    const stats = getOrCreate(z.client);
+    stats.count++;
+    for (const item of z.items) {
+      const markup = item.type === "material" ? z.markup_materials || 0 : z.markup_labor || 0;
+      stats.value += brutto((item.price_netto * (1 + markup / 100) * item.quantity), item.vat_rate);
     }
   }
 
   for (const o of getOffers()) {
-    if (o.client.toLowerCase().trim() === lower) {
-      count++;
-      for (const item of o.items) {
-        value +=
-          item.offer_price * item.quantity * (1 + item.vat_rate / 100);
-      }
+    if (!o.client) continue;
+    const stats = getOrCreate(o.client);
+    stats.count++;
+    for (const item of o.items) {
+      stats.value += item.offer_price * item.quantity * (1 + item.vat_rate / 100);
     }
   }
 
-  return { count, value };
+  return map;
+}
+
+let _clientStatsCache: Map<string, { count: number; value: number }> | null = null;
+function getClientStats(clientName: string): { count: number; value: number } {
+  if (!_clientStatsCache) _clientStatsCache = buildAllClientStats();
+  return _clientStatsCache.get(clientName.toLowerCase().trim()) || { count: 0, value: 0 };
+}
+
+/** Call this when data changes to invalidate the cache */
+export function invalidateClientStatsCache(): void {
+  _clientStatsCache = null;
 }
 
 // ─── Client detail page ────────────────────────────────────────

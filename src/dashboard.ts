@@ -195,9 +195,6 @@ export function initDashboard(): void {
       </div>
     </div>
 
-    <!-- Deadline alerts -->
-    ${renderDeadlineAlerts(zlecenia)}
-
     <!-- Financial summary -->
     ${renderFinancialSummary(zlecenia)}
 
