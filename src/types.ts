@@ -230,3 +230,57 @@ export interface ProductPriceHistoryEntry {
   catalog_price: number;
   changed_at: string;
 }
+
+// ─── Cenniki (Excel files + mapping templates) ──────────────────
+export type ColumnRole = "name" | "price" | "unit" | "vat" | "supplier" | "sku" | "category" | "notes" | "skip";
+
+export interface ColumnMapping {
+  column_index: number;
+  role: ColumnRole;
+}
+
+export interface SavedSheet {
+  name: string;
+  headers: string[];
+  rows: string[][];
+  totalRows: number;
+}
+
+export interface SavedExcelFile {
+  id: number;
+  name: string;                        // wyświetlana nazwa (np. "Cennik Castorama Q1 2026")
+  original_filename: string;
+  supplier: string;
+  sheets: SavedSheet[];
+  active_mappings: ColumnMapping[];     // aktualnie użyte mapowanie
+  mapping_template_id: number | null;
+  import_count: number;
+  last_imported_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MappingTemplate {
+  id: number;
+  name: string;                        // np. "Castorama", "Hurtownia XYZ"
+  mappings: ColumnMapping[];
+  header_row_index: number;
+  created_at: string;
+}
+
+export interface ImportHistoryEntry {
+  id: number;
+  excel_file_id: number;
+  imported_at: string;
+  items_added: number;
+  items_updated: number;
+  items_skipped: number;
+  price_changes: PriceChangeRecord[];
+}
+
+export interface PriceChangeRecord {
+  material_name: string;
+  old_price: number;
+  new_price: number;
+  change_pct: number;
+}

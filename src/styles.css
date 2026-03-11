@@ -3297,3 +3297,34 @@ body.ctx-ai-sidebar-open .main-wrapper {
 /* Error boundary */
 .error-boundary { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; }
 .error-boundary-inner { background: var(--bg-secondary); padding: 32px; border-radius: var(--radius); text-align: center; max-width: 360px; }
+
+/* ─── Cenniki (Excel Viewer) ──────────────────────────────────── */
+.cennik-mapping-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.cennik-role-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; padding: 3px 10px;
+  border-radius: 4px; color: #fff;
+  background: var(--role-color, #6b7280);
+}
+
+.cennik-table th.cennik-col-header:hover {
+  background: var(--bg-hover);
+}
+
+.cennik-table .cennik-mapped-cell {
+  background: rgba(255,255,255,0.02);
+}
+
+.cennik-table tr.row-deselected {
+  opacity: 0.35;
+}
+
+.cennik-mapping-dropdown div:hover {
+  background: var(--bg-hover);
+}

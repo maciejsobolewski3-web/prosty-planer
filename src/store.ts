@@ -1,4 +1,4 @@
-import type { Category, Material, PriceHistoryEntry, Labor, Zlecenie, ZlecenieItem, ZlecenieStatus, Expense, ExpenseCategory, Product, Offer, AppMode, Client, ProductPriceHistoryEntry, CommentEntry } from "./types";
+import type { Category, Material, PriceHistoryEntry, Labor, Zlecenie, ZlecenieItem, ZlecenieStatus, Expense, ExpenseCategory, Product, Offer, AppMode, Client, ProductPriceHistoryEntry, CommentEntry, SavedExcelFile, MappingTemplate, ImportHistoryEntry, ColumnMapping, SavedSheet } from "./types";
 import { writeTextFile, readTextFile, exists, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
@@ -34,6 +34,10 @@ interface Database {
   product_price_history: ProductPriceHistoryEntry[];
   app_mode: AppMode;
   global_notes: string;
+  // Cenniki (Excel files)
+  excel_files: SavedExcelFile[];
+  mapping_templates: MappingTemplate[];
+  import_history: ImportHistoryEntry[];
 }
 
 const DEFAULT_COMPANY: CompanySettings = {
@@ -59,6 +63,9 @@ let db: Database = {
   product_price_history: [],
   app_mode: "uslugowy",
   global_notes: "",
+  excel_files: [],
+  mapping_templates: [],
+  import_history: [],
 };
 
 let dataFilePath = "";
@@ -175,6 +182,9 @@ function migrateFromLocalStorage(): Database | null {
     product_price_history: [],
     app_mode: "uslugowy",
     global_notes: "",
+    excel_files: [],
+    mapping_templates: [],
+    import_history: [],
   };
 
   // Mark migration done — keep localStorage intact as backup
@@ -1020,6 +1030,88 @@ export async function importDatabase(json: string): Promise<boolean> {
     await saveToFile();
     return true;
   } catch { return false; }
+}
+
+// ─── Cenniki (Excel files) ───────────────────────────────────────
+
+export function getExcelFiles(): SavedExcelFile[] {
+  return (db.excel_files || []).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+export function getExcelFileById(id: number): SavedExcelFile | undefined {
+  return (db.excel_files || []).find((f) => f.id === id);
+}
+
+export function addExcelFile(input: { name: string; original_filename: string; supplier: string; sheets: SavedSheet[] }): SavedExcelFile {
+  if (!db.excel_files) db.excel_files = [];
+  const now = new Date().toISOString();
+  const file: SavedExcelFile = {
+    id: nextId(), name: input.name, original_filename: input.original_filename,
+    supplier: input.supplier, sheets: input.sheets, active_mappings: [],
+    mapping_template_id: null, import_count: 0, last_imported_at: null,
+    created_at: now, updated_at: now,
+  };
+  db.excel_files.push(file);
+  scheduleSave();
+  return file;
+}
+
+export function updateExcelFile(id: number, updates: Partial<SavedExcelFile>): void {
+  if (!db.excel_files) return;
+  const f = db.excel_files.find((e) => e.id === id);
+  if (!f) return;
+  Object.assign(f, updates, { updated_at: new Date().toISOString() });
+  scheduleSave();
+}
+
+export function deleteExcelFile(id: number): void {
+  if (!db.excel_files) return;
+  db.excel_files = db.excel_files.filter((f) => f.id !== id);
+  if (db.import_history) db.import_history = db.import_history.filter((h) => h.excel_file_id !== id);
+  scheduleSave();
+}
+
+// ─── Mapping templates ──────────────────────────────────────────
+
+export function getMappingTemplates(): MappingTemplate[] {
+  return db.mapping_templates || [];
+}
+
+export function addMappingTemplate(input: { name: string; mappings: ColumnMapping[]; header_row_index: number }): MappingTemplate {
+  if (!db.mapping_templates) db.mapping_templates = [];
+  const tpl: MappingTemplate = { id: nextId(), name: input.name, mappings: input.mappings, header_row_index: input.header_row_index, created_at: new Date().toISOString() };
+  db.mapping_templates.push(tpl);
+  scheduleSave();
+  return tpl;
+}
+
+export function updateMappingTemplate(id: number, updates: Partial<MappingTemplate>): void {
+  if (!db.mapping_templates) return;
+  const tpl = db.mapping_templates.find((t) => t.id === id);
+  if (tpl) Object.assign(tpl, updates);
+  scheduleSave();
+}
+
+export function deleteMappingTemplate(id: number): void {
+  if (!db.mapping_templates) return;
+  db.mapping_templates = db.mapping_templates.filter((t) => t.id !== id);
+  scheduleSave();
+}
+
+// ─── Import history ─────────────────────────────────────────────
+
+export function getImportHistory(excelFileId?: number): ImportHistoryEntry[] {
+  const hist = db.import_history || [];
+  if (excelFileId != null) return hist.filter((h) => h.excel_file_id === excelFileId);
+  return hist;
+}
+
+export function addImportHistoryEntry(entry: Omit<ImportHistoryEntry, "id">): ImportHistoryEntry {
+  if (!db.import_history) db.import_history = [];
+  const record: ImportHistoryEntry = { id: nextId(), ...entry };
+  db.import_history.push(record);
+  scheduleSave();
+  return record;
 }
 
 // ─── Internal accessors for store-trade.ts ─────────────────────

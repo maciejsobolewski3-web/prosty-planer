@@ -16,6 +16,7 @@ import { openSmartExcelImport } from "./excel-ai-import";
 // Trade mode imports
 import { getAppMode, setAppMode, seedTradeDefaults, getAllProductsCount, getOffers, getProducts } from "./store-trade";
 import { initProducts, setProductFilterView, setProductFilterCategory, setProductSearch, onProductSidebarUpdate } from "./products";
+import { initCenniki } from "./cenniki";
 import { initOffers } from "./offers";
 import { initKlienci, onKlienciNavigate } from "./klienci";
 import type { AppMode } from "./types";
@@ -42,7 +43,7 @@ function navigateTo(page: string): void {
     const pageNames: Record<string, string> = {
       dashboard: "Dashboard", materialy: "Materiały", robocizny: "Robocizny",
       zlecenia: "Zlecenia", klienci: "Klienci", mojafirma: "Moja Firma",
-      kategorie: "Kategorie", ustawienia: "Ustawienia", products: "Produkty", offers: "Oferty",
+      kategorie: "Kategorie", ustawienia: "Ustawienia", products: "Produkty", offers: "Oferty", cenniki: "Cenniki",
     };
     const name = pageNames[page] || page;
     breadcrumbEl.innerHTML = page === "dashboard" ? "" :
@@ -73,6 +74,7 @@ function navigateTo(page: string): void {
   }
   if (page === "offers") initOffers();
   if (page === "klienci") initKlienci();
+  if (page === "cenniki") initCenniki();
 }
 
 // ─── Sidebar nav rendering (mode-aware) ─────────────────────────
@@ -102,6 +104,10 @@ function renderSidebarNav(): void {
       <button class="sidebar-nav-item" data-page="mojafirma">
         <i class="fa-solid fa-briefcase"></i>
         Moja Firma
+      </button>
+      <button class="sidebar-nav-item" data-page="cenniki">
+        <i class="fa-solid fa-file-excel"></i>
+        Cenniki
       </button>
       <button class="sidebar-nav-item" data-page="kategorie">
         <i class="fa-solid fa-tags"></i>
@@ -138,6 +144,10 @@ function renderSidebarNav(): void {
       <button class="sidebar-nav-item" data-page="mojafirma">
         <i class="fa-solid fa-briefcase"></i>
         Moja Firma
+      </button>
+      <button class="sidebar-nav-item" data-page="cenniki">
+        <i class="fa-solid fa-file-excel"></i>
+        Cenniki
       </button>
       <button class="sidebar-nav-item" data-page="kategorie">
         <i class="fa-solid fa-tags"></i>
