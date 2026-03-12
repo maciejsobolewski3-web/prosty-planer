@@ -246,12 +246,15 @@ export interface SavedSheet {
   totalRows: number;
 }
 
+/** Metadata stored in main DB (lightweight, no sheet data) */
 export interface SavedExcelFile {
   id: number;
   name: string;                        // wyświetlana nazwa (np. "Cennik Castorama Q1 2026")
   original_filename: string;
   supplier: string;
-  sheets: SavedSheet[];
+  sheets: SavedSheet[];                // kept empty in DB, loaded lazily from separate file
+  sheet_count: number;                 // summary: how many sheets
+  total_rows: number;                  // summary: total rows across all sheets
   active_mappings: ColumnMapping[];     // aktualnie użyte mapowanie
   mapping_template_id: number | null;
   import_count: number;

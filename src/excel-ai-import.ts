@@ -178,7 +178,7 @@ function parseAIResponse(raw: string): { analysis: string; items: ProposedItem[]
         name: item.name || item.nazwa || "",
         unit: item.unit || item.jednostka || "szt",
         price: rawPrice,
-        vat_rate: sanitizePrice(item.vat_rate ?? item.vat ?? item.stawka_vat) || 23,
+        vat_rate: sanitizePrice(item.vat_rate ?? item.vat ?? item.stawka_vat) ?? 23,
         supplier: item.supplier || item.dostawca || "",
         category: item.category || item.kategoria || "",
         notes: item.notes || item.uwagi || "",
@@ -298,7 +298,7 @@ function renderImportModal(analysis: string, items: ProposedItem[], onImport: (s
     </div>
   `;
 
-  openModal(`<i class="fa-solid fa-file-excel"></i> Import z Excel — AI Analiza`, modalHtml);
+  openModal(`<h2 class="modal-title"><i class="fa-solid fa-file-excel"></i> Import z Excel — AI Analiza</h2>${modalHtml}`);
 
   // Bind events
   document.getElementById("excel-ai-cancel")?.addEventListener("click", closeModal);
@@ -394,8 +394,8 @@ export async function openSmartExcelImport(): Promise<void> {
 
   // 2. Show loading
   openModal(
-    `<i class="fa-solid fa-file-excel"></i> Import z Excel`,
-    `<div style="text-align:center;padding:40px">
+    `<h2 class="modal-title"><i class="fa-solid fa-file-excel"></i> Import z Excel</h2>
+    <div style="text-align:center;padding:40px">
       <div class="spinner" style="margin:0 auto 16px"></div>
       <p style="font-size:14px;font-weight:600">Czytam plik Excel...</p>
       <p style="font-size:12px;color:var(--text-secondary)">Parsowanie arkusza</p>
@@ -407,7 +407,7 @@ export async function openSmartExcelImport(): Promise<void> {
     const sheets = await readExcelFile(filePath);
 
     if (sheets.length === 0 || sheets.every((s) => s.rows.length === 0)) {
-      openModal("Import Excel", `<p>Plik jest pusty lub nie zawiera danych.</p><button class="btn" onclick="document.querySelector('.modal-overlay')?.click()">OK</button>`);
+      openModal(`<h2 class="modal-title">Import Excel</h2><p>Plik jest pusty lub nie zawiera danych.</p><button class="btn" onclick="document.querySelector('.modal-overlay')?.click()">OK</button>`);
       return;
     }
 
@@ -425,8 +425,8 @@ export async function openSmartExcelImport(): Promise<void> {
 
       // Update loading message with progress
       openModal(
-        `<i class="fa-solid fa-file-excel"></i> Import z Excel`,
-        `<div style="text-align:center;padding:40px">
+        `<h2 class="modal-title"><i class="fa-solid fa-file-excel"></i> Import z Excel</h2>
+        <div style="text-align:center;padding:40px">
           <div class="spinner" style="margin:0 auto 16px"></div>
           <p style="font-size:14px;font-weight:600">AI analizuje plik...</p>
           <p style="font-size:12px;color:var(--text-secondary)">
@@ -459,8 +459,8 @@ export async function openSmartExcelImport(): Promise<void> {
 
   } catch (e: any) {
     openModal(
-      `<i class="fa-solid fa-exclamation-triangle"></i> Błąd importu`,
-      `<div>
+      `<h2 class="modal-title"><i class="fa-solid fa-exclamation-triangle"></i> Błąd importu</h2>
+      <div>
         <p style="margin-bottom:12px">Nie udało się przeanalizować pliku:</p>
         <pre style="font-size:11px;background:var(--bg-secondary);padding:12px;border-radius:var(--radius);overflow:auto;max-height:200px">${esc(e.message)}</pre>
         <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">

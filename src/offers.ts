@@ -1618,12 +1618,12 @@ async function fillSourceExcel(o: Offer): Promise<void> {
 
     if (src.col_map.vat_rate >= 0) {
       ws[XLSX.utils.encode_cell({ r: rowIdx, c: src.col_map.vat_rate })] = {
-        t: "n", v: bestItem.vat_rate || 23,
+        t: "n", v: bestItem.vat_rate ?? 23,
       };
     }
 
     if (src.col_map.total_gross >= 0) {
-      const vatRate = bestItem.vat_rate || 23;
+      const vatRate = bestItem.vat_rate ?? 23;
       const bruttoVal = bestItem.offer_price * bestItem.quantity * (1 + vatRate / 100);
       ws[XLSX.utils.encode_cell({ r: rowIdx, c: src.col_map.total_gross })] = {
         t: "n", v: Math.round(bruttoVal * 100) / 100,

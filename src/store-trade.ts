@@ -46,10 +46,8 @@ export function getProducts(filter: ProductFilter = {}): Product[] {
   // By default hide archived
   if (!filter.show_archived) {
     items = items.filter((p) => !p.is_archived);
-  } else {
-    // When showing archived, only show archived items
-    items = items.filter((p) => p.is_archived);
   }
+  // If show_archived is true, don't filter - show everything
 
   if (filter.favorites_only) {
     items = items.filter((p) => p.is_favorite);
@@ -148,6 +146,9 @@ export function updateProduct(id: number, input: Partial<ProductInput>): void {
 export function deleteProduct(id: number): void {
   const db = _getDb();
   db.products = db.products.filter((p) => p.id !== id);
+  if (db.product_price_history) {
+    db.product_price_history = db.product_price_history.filter((h) => h.product_id !== id);
+  }
   _scheduleSave();
 }
 
@@ -163,7 +164,16 @@ export function toggleProductFavorite(id: number): void {
 export function archiveProduct(id: number): void {
   const p = _getDb().products.find((x) => x.id === id);
   if (p) {
-    p.is_archived = !p.is_archived;
+    p.is_archived = true;
+    p.updated_at = new Date().toISOString();
+    _scheduleSave();
+  }
+}
+
+export function unarchiveProduct(id: number): void {
+  const p = _getDb().products.find((x) => x.id === id);
+  if (p) {
+    p.is_archived = false;
     p.updated_at = new Date().toISOString();
     _scheduleSave();
   }

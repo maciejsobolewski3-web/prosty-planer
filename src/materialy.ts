@@ -121,9 +121,9 @@ function renderList(): void {
       <i class="fa-solid fa-file-excel"></i> Import z cennika
     </button>
     <button class="btn btn-secondary" id="btn-import-csv">
-      <i class="fa-solid fa-file-import"></i> Import CSV
+      <i class="fa-solid fa-file-import"></i> Import Excel
     </button>
-    <input type="file" id="csv-file-input" accept=".csv" style="display:none" />
+    <input type="file" id="csv-file-input" accept=".csv,.xlsx,.xls,.xlsm,.xlsb,.ods,.tsv" style="display:none" />
   `;
   document.getElementById("btn-add-material")!.addEventListener("click", () => openDetail());
   document.getElementById("btn-import-cennik")!.addEventListener("click", () => {

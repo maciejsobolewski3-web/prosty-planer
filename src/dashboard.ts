@@ -831,7 +831,7 @@ function renderSeasonalityChart(zlecenia: Zlecenie[]): string {
 
   // Build line chart
   const points = monthsData.map((m, i) => {
-    const x = padding + (i / (monthsData.length - 1 || 1)) * innerW;
+    const x = padding + (i / ((monthsData.length - 1) || 1)) * innerW;
     const y = chartH - padding - (m.count / maxCount) * innerH;
     return { x, y, count: m.count, month: m.month };
   });
@@ -844,7 +844,7 @@ function renderSeasonalityChart(zlecenia: Zlecenie[]): string {
 
   // X-axis labels
   const xLabels = monthsData.map((m, i) => {
-    const x = padding + (i / (monthsData.length - 1 || 1)) * innerW;
+    const x = padding + (i / ((monthsData.length - 1) || 1)) * innerW;
     return `<text x="${x}" y="${chartH - 2}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${m.month}</text>`;
   }).join("");
 

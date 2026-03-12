@@ -1,6 +1,7 @@
 import type { Category, Material, PriceHistoryEntry, Labor, Zlecenie, ZlecenieItem, ZlecenieStatus, Expense, ExpenseCategory, Product, Offer, AppMode, Client, ProductPriceHistoryEntry, CommentEntry, SavedExcelFile, MappingTemplate, ImportHistoryEntry, ColumnMapping, SavedSheet } from "./types";
 import { writeTextFile, readTextFile, exists, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
+import { invalidateClientStatsCache } from "./klienci";
 
 // ─── Storage keys (same as before, for localStorage migration) ──
 const MATERIALS_KEY = "pp_materials";
@@ -71,6 +72,7 @@ let db: Database = {
 let dataFilePath = "";
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 let initialized = false;
+let isSaving = false;
 
 // ─── Undo stack ──────────────────────────────────────────────────
 interface UndoEntry { label: string; undo: () => void; }
@@ -127,6 +129,13 @@ function scheduleSave(): void {
 }
 
 async function saveToFile(): Promise<void> {
+  if (isSaving) {
+    // Schedule a retry if already saving
+    scheduleSave();
+    return;
+  }
+
+  isSaving = true;
   try {
     const path = await getDataPath();
     const json = JSON.stringify(db, null, 2);
@@ -137,6 +146,8 @@ async function saveToFile(): Promise<void> {
     try {
       localStorage.setItem("pp_backup", JSON.stringify(db));
     } catch {}
+  } finally {
+    isSaving = false;
   }
 }
 
@@ -166,7 +177,7 @@ function migrateFromLocalStorage(): Database | null {
   }
 
   const migrated: Database = {
-    id_counter: parseInt(localStorage.getItem(ID_COUNTER_KEY) || "0", 10),
+    id_counter: parseInt(localStorage.getItem(ID_COUNTER_KEY) || "0", 10) || 0,
     categories: loadLS<Category>(CATEGORIES_KEY),
     materials: loadLS<Material>(MATERIALS_KEY),
     price_history: loadLS<PriceHistoryEntry>(PRICE_HISTORY_KEY),
@@ -284,8 +295,8 @@ export function getMaterials(filter: MaterialFilter = {}): Material[] {
     mats = mats.filter(
       (m) =>
         m.name.toLowerCase().includes(s) ||
-        m.supplier.toLowerCase().includes(s) ||
-        m.sku.toLowerCase().includes(s)
+        (m.supplier || "").toLowerCase().includes(s) ||
+        (m.sku || "").toLowerCase().includes(s)
     );
   }
 
@@ -411,8 +422,8 @@ export function getLabor(filter: LaborFilter = {}): Labor[] {
     items = items.filter(
       (l) =>
         l.name.toLowerCase().includes(s) ||
-        l.category.toLowerCase().includes(s) ||
-        l.notes.toLowerCase().includes(s)
+        (l.category || "").toLowerCase().includes(s) ||
+        (l.notes || "").toLowerCase().includes(s)
     );
   }
 
@@ -949,10 +960,10 @@ export function getClients(search?: string): Client[] {
     list = list.filter(
       (c) =>
         c.name.toLowerCase().includes(s) ||
-        c.nip.includes(s) ||
-        c.city.toLowerCase().includes(s) ||
-        c.contact_person.toLowerCase().includes(s) ||
-        c.email.toLowerCase().includes(s)
+        (c.nip || "").includes(s) ||
+        (c.city || "").toLowerCase().includes(s) ||
+        (c.contact_person || "").toLowerCase().includes(s) ||
+        (c.email || "").toLowerCase().includes(s)
     );
   }
   return list.sort((a, b) => a.name.localeCompare(b.name, "pl"));
@@ -976,6 +987,7 @@ export function addClient(input: ClientInput): Client {
     updated_at: now,
   };
   db.clients.push(client);
+  invalidateClientStatsCache();
   scheduleSave();
   return client;
 }
@@ -984,11 +996,13 @@ export function updateClient(id: number, input: ClientInput): void {
   const client = db.clients.find((c) => c.id === id);
   if (!client) return;
   Object.assign(client, input, { updated_at: new Date().toISOString() });
+  invalidateClientStatsCache();
   scheduleSave();
 }
 
 export function deleteClient(id: number): void {
   db.clients = db.clients.filter((c) => c.id !== id);
+  invalidateClientStatsCache();
   scheduleSave();
 }
 
@@ -1042,33 +1056,90 @@ export function getExcelFileById(id: number): SavedExcelFile | undefined {
   return (db.excel_files || []).find((f) => f.id === id);
 }
 
-export function addExcelFile(input: { name: string; original_filename: string; supplier: string; sheets: SavedSheet[] }): SavedExcelFile {
+/** Save sheet data to a separate file: cennik-{id}.json */
+export async function saveCennikSheets(id: number, sheets: SavedSheet[]): Promise<void> {
+  try {
+    const dir = await appDataDir();
+    const path = await join(dir, `cennik-${id}.json`);
+    await writeTextFile(path, JSON.stringify(sheets));
+  } catch (e) {
+    console.error(`Failed to save cennik sheets ${id}:`, e);
+  }
+}
+
+/** Load sheet data from separate file (lazy) */
+export async function loadCennikSheets(id: number): Promise<SavedSheet[]> {
+  try {
+    const dir = await appDataDir();
+    const path = await join(dir, `cennik-${id}.json`);
+    const fileExists = await exists(path);
+    if (!fileExists) return [];
+    const raw = await readTextFile(path);
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error(`Failed to load cennik sheets ${id}:`, e);
+    return [];
+  }
+}
+
+/** Delete cennik sheet file */
+async function deleteCennikFile(id: number): Promise<void> {
+  try {
+    const dir = await appDataDir();
+    const path = await join(dir, `cennik-${id}.json`);
+    const fileExists = await exists(path);
+    if (fileExists) {
+      // Tauri FS doesn't have remove, overwrite with empty to free space
+      await writeTextFile(path, "[]");
+    }
+  } catch (e) {
+    console.error(`Failed to delete cennik file ${id}:`, e);
+  }
+}
+
+export async function addExcelFile(input: { name: string; original_filename: string; supplier: string; sheets: SavedSheet[] }): Promise<SavedExcelFile> {
   if (!db.excel_files) db.excel_files = [];
   const now = new Date().toISOString();
+  const totalRows = input.sheets.reduce((sum, s) => sum + s.totalRows, 0);
+  const id = nextId();
   const file: SavedExcelFile = {
-    id: nextId(), name: input.name, original_filename: input.original_filename,
-    supplier: input.supplier, sheets: input.sheets, active_mappings: [],
-    mapping_template_id: null, import_count: 0, last_imported_at: null,
+    id, name: input.name, original_filename: input.original_filename,
+    supplier: input.supplier, sheets: [], sheet_count: input.sheets.length, total_rows: totalRows,
+    active_mappings: [], mapping_template_id: null, import_count: 0, last_imported_at: null,
     created_at: now, updated_at: now,
   };
   db.excel_files.push(file);
   scheduleSave();
-  return file;
+
+  // Save sheet data to separate file
+  await saveCennikSheets(id, input.sheets);
+
+  // Return with sheets for immediate use by caller
+  return { ...file, sheets: input.sheets };
 }
 
 export function updateExcelFile(id: number, updates: Partial<SavedExcelFile>): void {
   if (!db.excel_files) return;
   const f = db.excel_files.find((e) => e.id === id);
   if (!f) return;
+
+  // If sheets are being updated, save to separate file and strip from db
+  if (updates.sheets && updates.sheets.length > 0) {
+    const totalRows = updates.sheets.reduce((sum, s) => sum + s.totalRows, 0);
+    saveCennikSheets(id, updates.sheets);
+    updates = { ...updates, sheets: [], sheet_count: updates.sheets.length, total_rows: totalRows };
+  }
+
   Object.assign(f, updates, { updated_at: new Date().toISOString() });
   scheduleSave();
 }
 
-export function deleteExcelFile(id: number): void {
+export async function deleteExcelFile(id: number): Promise<void> {
   if (!db.excel_files) return;
   db.excel_files = db.excel_files.filter((f) => f.id !== id);
   if (db.import_history) db.import_history = db.import_history.filter((h) => h.excel_file_id !== id);
   scheduleSave();
+  await deleteCennikFile(id);
 }
 
 // ─── Mapping templates ──────────────────────────────────────────

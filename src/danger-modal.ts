@@ -27,21 +27,18 @@ export async function dangerModal(
 
     openModal(html, "modal-sm");
 
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cleanup(false);
+    };
+
     const cleanup = (result: boolean) => {
+      document.removeEventListener("keydown", onKey);
       closeModal();
       resolve(result);
     };
 
     document.getElementById("dm-cancel")!.addEventListener("click", () => cleanup(false));
     document.getElementById("dm-confirm")!.addEventListener("click", () => cleanup(true));
-
-    // Escape key → cancel
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        document.removeEventListener("keydown", onKey);
-        cleanup(false);
-      }
-    };
     document.addEventListener("keydown", onKey);
   });
 }

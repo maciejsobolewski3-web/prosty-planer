@@ -28,6 +28,9 @@ let currentPage = "dashboard";
 function navigateTo(page: string): void {
   currentPage = page;
 
+  // Close any open modal before navigating
+  closeModal();
+
   // Toggle page visibility
   document.querySelectorAll<HTMLElement>(".page").forEach((p) => p.classList.add("hidden"));
   document.getElementById(`page-${page}`)?.classList.remove("hidden");

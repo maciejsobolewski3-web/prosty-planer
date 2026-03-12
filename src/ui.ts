@@ -46,6 +46,7 @@ export function showToast(message: string): void {
 
 // ─── Price formatting ────────────────────────────────────────────
 export function formatPrice(price: number): string {
+  if (!isFinite(price) || isNaN(price)) return "0,00";
   return price.toFixed(2).replace(".", ",");
 }
 
