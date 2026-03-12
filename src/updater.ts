@@ -4,22 +4,22 @@
  * Sprawdza aktualizacje przy starcie apki.
  * Jeśli jest nowa wersja → pokazuje dialog → user klika → auto-instalacja + restart.
  *
- * Wymaga:
- *   npm install @tauri-apps/plugin-updater @tauri-apps/plugin-dialog
- *   W Cargo.toml (src-tauri): tauri-plugin-updater, tauri-plugin-dialog
+ * UWAGA: "dialog": true w tauri.conf.json MUSI być usunięte!
+ * Ten plik sam obsługuje dialog przez @tauri-apps/plugin-dialog.
  */
 
 import { check } from "@tauri-apps/plugin-updater";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 
 export async function checkForUpdates(silent: boolean = true): Promise<void> {
   try {
+    console.log("[updater] Sprawdzam aktualizacje...");
     const update = await check();
 
     if (!update) {
-      // No update available
+      console.log("[updater] Brak dostępnych aktualizacji");
       if (!silent) {
-        await ask("Masz najnowszą wersję Prosty Planer!", {
+        await message("Masz najnowszą wersję Prosty Planer!", {
           title: "Aktualizacja",
           kind: "info",
         });
@@ -27,12 +27,15 @@ export async function checkForUpdates(silent: boolean = true): Promise<void> {
       return;
     }
 
-    console.log(`Nowa wersja dostępna: ${update.version} (aktualna: ${update.currentVersion})`);
+    console.log(`[updater] Nowa wersja: ${update.version} (aktualna: ${update.currentVersion})`);
+    console.log(`[updater] Data: ${update.date || "brak"}`);
+    console.log(`[updater] Body: ${update.body || "brak"}`);
 
     const shouldUpdate = await ask(
       `Dostępna nowa wersja ${update.version}!\n\n` +
         `Aktualna wersja: ${update.currentVersion}\n\n` +
-        `Czy chcesz zaktualizować teraz?`,
+        `Czy chcesz zaktualizować teraz?\n` +
+        `(Aplikacja zostanie zrestartowana)`,
       {
         title: "Aktualizacja Prosty Planer",
         kind: "info",
@@ -41,39 +44,45 @@ export async function checkForUpdates(silent: boolean = true): Promise<void> {
       }
     );
 
-    if (shouldUpdate) {
-      try {
-        console.log("Pobieram aktualizację...");
-        await update.downloadAndInstall();
-        const { relaunch } = await import("@tauri-apps/plugin-process");
-        await relaunch();
-      } catch (downloadError) {
-        console.error("Błąd pobierania aktualizacji:", downloadError);
-        // Zawsze pokaż błąd pobierania — user kliknął "Aktualizuj" więc czeka
-        await ask(
-          `Nie udało się pobrać aktualizacji:\n${downloadError}\n\nSprawdź połączenie z internetem i spróbuj ponownie.`,
-          { title: "Błąd aktualizacji", kind: "error" }
-        );
-      }
+    if (!shouldUpdate) {
+      console.log("[updater] Użytkownik odrzucił aktualizację");
+      return;
     }
-  } catch (error) {
-    console.error("Błąd sprawdzania aktualizacji:", error);
+
+    console.log("[updater] Rozpoczynam pobieranie i instalację...");
+
+    let downloaded = 0;
+    let contentLength = 0;
+
+    await update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          contentLength = event.data.contentLength ?? 0;
+          console.log(`[updater] Pobieranie rozpoczęte, rozmiar: ${contentLength} bajtów`);
+          break;
+        case "Progress":
+          downloaded += event.data.chunkLength;
+          if (contentLength > 0) {
+            const pct = Math.round((downloaded / contentLength) * 100);
+            console.log(`[updater] Pobrano ${pct}% (${downloaded}/${contentLength})`);
+          }
+          break;
+        case "Finished":
+          console.log("[updater] Pobieranie zakończone, instaluję...");
+          break;
+      }
+    });
+
+    console.log("[updater] Instalacja zakończona, restartuję...");
+    const { relaunch } = await import("@tauri-apps/plugin-process");
+    await relaunch();
+  } catch (error: any) {
+    console.error("[updater] Błąd:", error);
     if (!silent) {
-      await ask(`Nie udało się sprawdzić aktualizacji: ${error}`, {
-        title: "Błąd",
-        kind: "error",
-      });
+      await message(
+        `Nie udało się zaktualizować:\n\n${error?.message || error}\n\nSprawdź połączenie z internetem i spróbuj ponownie.`,
+        { title: "Błąd aktualizacji", kind: "error" }
+      );
     }
   }
 }
-
-/**
- * Call this on app startup in main.ts:
- *
- *   import { checkForUpdates } from "./updater";
- *   checkForUpdates(true); // silent=true, no popup if up to date
- *
- * For manual "check for updates" button:
- *
- *   checkForUpdates(false); // shows "you're up to date" if no update
- */
