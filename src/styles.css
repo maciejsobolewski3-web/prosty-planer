@@ -110,6 +110,18 @@ html, body { height: 100%; overflow: hidden; }
   color: var(--text-muted);
 }
 
+[data-theme="dark"] .data-table a,
+[data-theme="dark"] .material-name,
+[data-theme="dark"] .link {
+  color: #6CB4FF;
+}
+[data-theme="dark"] .data-table a:hover,
+[data-theme="dark"] .material-name:hover,
+[data-theme="dark"] .link:hover {
+  color: #9DCFFF;
+}
+
+
 body {
   font-family: var(--font-ui);
   background: var(--bg-primary);
@@ -999,6 +1011,15 @@ tr:hover .item-note-add { opacity: 0.7; }
 .empty-state {
   text-align: center; padding: 60px 20px;
   color: var(--text-secondary);
+}
+
+/* ─── Table links ─────────────────────────────────────── */
+.material-name, .data-table a, .link {
+  color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+  transition: color var(--transition);
+}
+.material-name:hover, .data-table a:hover, .link:hover {
+  color: var(--accent-hover);
 }
 
 /* ─── Clickable row ───────────────────────────────────── */
