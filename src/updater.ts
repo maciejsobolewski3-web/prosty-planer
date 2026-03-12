@@ -51,36 +51,45 @@ export async function checkForUpdates(silent: boolean = true): Promise<void> {
 
     console.log("[updater] Rozpoczynam pobieranie i instalację...");
 
-    let downloaded = 0;
-    let contentLength = 0;
+    // Po kliknięciu "Aktualizuj" ZAWSZE pokazuj błędy (niezależnie od silent)
+    try {
+      let downloaded = 0;
+      let contentLength = 0;
 
-    await update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case "Started":
-          contentLength = event.data.contentLength ?? 0;
-          console.log(`[updater] Pobieranie rozpoczęte, rozmiar: ${contentLength} bajtów`);
-          break;
-        case "Progress":
-          downloaded += event.data.chunkLength;
-          if (contentLength > 0) {
-            const pct = Math.round((downloaded / contentLength) * 100);
-            console.log(`[updater] Pobrano ${pct}% (${downloaded}/${contentLength})`);
-          }
-          break;
-        case "Finished":
-          console.log("[updater] Pobieranie zakończone, instaluję...");
-          break;
-      }
-    });
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength ?? 0;
+            console.log(`[updater] Pobieranie rozpoczęte, rozmiar: ${contentLength} bajtów`);
+            break;
+          case "Progress":
+            downloaded += event.data.chunkLength;
+            if (contentLength > 0) {
+              const pct = Math.round((downloaded / contentLength) * 100);
+              console.log(`[updater] Pobrano ${pct}% (${downloaded}/${contentLength})`);
+            }
+            break;
+          case "Finished":
+            console.log("[updater] Pobieranie zakończone, instaluję...");
+            break;
+        }
+      });
 
-    console.log("[updater] Instalacja zakończona, restartuję...");
-    const { relaunch } = await import("@tauri-apps/plugin-process");
-    await relaunch();
+      console.log("[updater] Instalacja zakończona, restartuję...");
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch (dlError: any) {
+      console.error("[updater] Błąd pobierania/instalacji:", dlError);
+      await message(
+        `Nie udało się pobrać aktualizacji:\n\n${dlError?.message || dlError}\n\nSprawdź połączenie z internetem i spróbuj ponownie.`,
+        { title: "Błąd aktualizacji", kind: "error" }
+      );
+    }
   } catch (error: any) {
     console.error("[updater] Błąd:", error);
     if (!silent) {
       await message(
-        `Nie udało się zaktualizować:\n\n${error?.message || error}\n\nSprawdź połączenie z internetem i spróbuj ponownie.`,
+        `Nie udało się sprawdzić aktualizacji:\n\n${error?.message || error}\n\nSprawdź połączenie z internetem i spróbuj ponownie.`,
         { title: "Błąd aktualizacji", kind: "error" }
       );
     }
