@@ -31,7 +31,7 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRCQTA4NUI4OUY4MEJFQzYKUldUR3ZvQ2Z1SVdnUzJ1VWRuV2doNzJTTDIvZVVEallpWTlac0tRREdwWXA2RERHUGNhcFNmWjcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE2OTNBRjAwOTE0NDZFREQKUldUZGJrU1JBSytUcGthbHJSVTVSa3J3b1drSEMxMkNoQXNXK3dDdk1PMXdodU5CR0krNnFUcU8K",
       "endpoints": [
         "https://github.com/maciejsobolewski3-web/prosty-planer/releases/latest/download/latest.json"
       ]
