@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Prosty Planer — Desktopowa aplikacja do wycen budowlanych, ofert handlowych i zarządzania zleceniami. Tryb usługowy i handlowy, AI Asystent, import Excel.">
+    <title>Prosty Planer — Wyceny i oferty z AI — ProstyPrzetarg.pl</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="assets/images/favicon.svg">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="assets/css/main.css?v=20260303a">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.0.1/dist/driver.css">
+    <link rel="stylesheet" href="assets/css/brutalist-theme.css?v=14">
+
+    <style>
+        /* ══════════════════════════════════════
+           PROSTY PLANER — PAGE STYLES
+           ══════════════════════════════════════ */
+
+        .content { overflow-x: hidden; }
+
+        /* ── Hero ── */
+        .planer-hero {
+            padding: 48px 0 64px;
+            border-bottom: 2px solid var(--border, #DDD8D0);
+            margin-bottom: 64px;
+        }
+
+        .planer-hero-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: center;
+        }
+
+        .planer-hero-overline {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #E03E1A;
+            margin-bottom: 16px;
+        }
+
+        .planer-hero h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.8rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: -0.03em;
+            line-height: 1.05;
+            margin-bottom: 20px;
+        }
+
+        .planer-hero h1 span {
+            color: #E03E1A;
+        }
+
+        .planer-hero-desc {
+            font-size: 1rem;
+            line-height: 1.7;
+            color: #4A4540;
+            margin-bottom: 28px;
+            max-width: 520px;
+        }
+
+        .planer-hero-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 32px;
+        }
+
+        .planer-hero-tag {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 6px 14px;
+            border: 2px solid #DDD8D0;
+            color: #4A4540;
+        }
+
+        .planer-hero-ctas {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 28px;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            text-decoration: none;
+            border: 2px solid #1A1613;
+            background: #E03E1A;
+            color: #F4F1EC;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-download:hover {
+            background: #C4340F;
+            box-shadow: 4px 4px 0 #1A1613;
+            transform: translate(-2px, -2px);
+        }
+
+        .btn-download-secondary {
+            background: #1A1613;
+            color: #F4F1EC;
+        }
+
+        .btn-download-secondary:hover {
+            background: #4A4540;
+        }
+
+        .planer-hero-note {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.6rem;
+            color: #8A8580;
+            margin-top: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .planer-hero-screenshot {
+            border: 2px solid #1A1613;
+            box-shadow: 8px 8px 0 #1A1613;
+            overflow: hidden;
+        }
+
+        .planer-hero-screenshot .screenshot-chrome {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: #1A1613;
+            border-bottom: 2px solid #1A1613;
+        }
+
+        .screenshot-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50% !important;
+            background: #8A8580;
+        }
+
+        .screenshot-chrome span {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.55rem;
+            color: #8A8580;
+            margin-left: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .planer-hero-screenshot img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        /* ── Section headers ── */
+        .section-label {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #E03E1A;
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.2rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+            margin-bottom: 12px;
+        }
+
+        .section-subtitle {
+            font-size: 0.95rem;
+            color: #4A4540;
+            line-height: 1.6;
+            max-width: 600px;
+        }
+
+        .section-header {
+            margin-bottom: 48px;
+        }
+
+        /* ── Modules grid ── */
+        .modules-section {
+            padding: 64px 0;
+            border-bottom: 2px solid #DDD8D0;
+        }
+
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0;
+            border: 2px solid #1A1613;
+        }
+
+        .module-card {
+            padding: 32px 24px;
+            border-right: 2px solid #1A1613;
+            border-bottom: 2px solid #1A1613;
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        .module-card:nth-child(3n) { border-right: none; }
+        .module-card:nth-child(n+4) { border-bottom: none; }
+
+        .module-card:hover {
+            background: rgba(224,62,26,0.04);
+        }
+
+        .module-num {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.55rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #E03E1A;
+            margin-bottom: 10px;
+        }
+
+        .module-icon {
+            font-size: 1.4rem;
+            color: #E03E1A;
+            margin-bottom: 12px;
+        }
+
+        .module-card h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: -0.01em;
+            margin-bottom: 8px;
+        }
+
+        .module-card p {
+            font-size: 0.85rem;
+            color: #4A4540;
+            line-height: 1.6;
+        }
+
+
+
+        /* ── Tutorial / How-to ── */
+        .tutorial-section {
+            padding: 64px 0;
+            border-bottom: 2px solid #DDD8D0;
+        }
+
+        .tutorial-tabs {
+            display: flex;
+            gap: 0;
+            border: 2px solid #1A1613;
+            border-bottom: none;
+            margin-top: 36px;
+        }
+
+        .tutorial-tab {
+            flex: 1;
+            padding: 16px 20px;
+            background: none;
+            border: none;
+            border-right: 2px solid #1A1613;
+            cursor: pointer;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #8A8580;
+            text-align: center;
+            transition: all 0.15s;
+        }
+
+        .tutorial-tab:last-child { border-right: none; }
+        .tutorial-tab:hover { background: rgba(224,62,26,0.04); }
+        .tutorial-tab.active { background: #E03E1A; color: #F4F1EC; }
+
+        .tutorial-content {
+            border: 2px solid #1A1613;
+            border-top: none;
+        }
+
+        .tutorial-panel {
+            display: none;
+            padding: 32px;
+        }
+
+        .tutorial-panel.active { display: block; }
+
+        .tutorial-steps {
+            counter-reset: step;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .tutorial-step {
+            counter-increment: step;
+            padding: 20px 0 20px 60px;
+            border-bottom: 1px solid #DDD8D0;
+            position: relative;
+        }
+
+        .tutorial-step:last-child { border-bottom: none; }
+
+        .tutorial-step::before {
+            content: counter(step, decimal-leading-zero);
+            position: absolute;
+            left: 0;
+            top: 20px;
+            font-family: 'Space Mono', monospace;
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #E03E1A;
+            line-height: 1;
+        }
+
+        .tutorial-step h4 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .tutorial-step p {
+            font-size: 0.85rem;
+            color: #4A4540;
+            line-height: 1.6;
+        }
+
+        .tutorial-step code {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(224,62,26,0.08);
+            padding: 2px 6px;
+            border: 1px solid rgba(224,62,26,0.2);
+        }
+
+        .tutorial-tip {
+            margin-top: 24px;
+            padding: 16px 20px;
+            background: rgba(224,62,26,0.04);
+            border-left: 3px solid #E03E1A;
+            font-size: 0.82rem;
+            color: #4A4540;
+            line-height: 1.6;
+        }
+
+        .tutorial-tip strong { color: #E03E1A; }
+
+        body.dark-theme .tutorial-tab { color: #8A8580; border-color: #333; }
+        body.dark-theme .tutorial-tabs { border-color: #333; }
+        body.dark-theme .tutorial-content { border-color: #333; }
+        body.dark-theme .tutorial-tab.active { background: #E03E1A; color: #F4F1EC; }
+        body.dark-theme .tutorial-step { border-color: #333; }
+        body.dark-theme .tutorial-step h4 { color: #F4F1EC; }
+        body.dark-theme .tutorial-step p { color: #8A8580; }
+        body.dark-theme .tutorial-tip { background: rgba(224,62,26,0.08); }
+
+        @media (max-width: 768px) {
+            .tutorial-tabs { flex-direction: column; }
+            .tutorial-tab { border-right: none !important; border-bottom: 2px solid #1A1613; }
+            .tutorial-tab:last-child { border-bottom: none; }
+            .tutorial-panel { padding: 20px 16px; }
+            .tutorial-step { padding-left: 48px; }
+        }
+
+        /* ── For who ── */
+        .audience-section {
+            padding: 64px 0;
+            border-bottom: 2px solid #DDD8D0;
+        }
+
+        .audience-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0;
+            border: 2px solid #1A1613;
+            margin-top: 36px;
+        }
+
+        .audience-item {
+            padding: 24px 28px;
+            border-right: 2px solid #1A1613;
+            border-bottom: 2px solid #1A1613;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: background 0.15s;
+        }
+
+        .audience-item:nth-child(2n) { border-right: none; }
+        .audience-item:nth-child(n+5) { border-bottom: none; }
+
+        .audience-item:hover { background: rgba(224,62,26,0.04); }
+
+        .audience-item i {
+            color: #E03E1A;
+            font-size: 1.1rem;
+            width: 24px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        /* ── Why section ── */
+        .why-section {
+            padding: 64px 0;
+            background: #1A1613;
+            color: #F4F1EC;
+            border-top: 2px solid #1A1613;
+            border-bottom: 2px solid #1A1613;
+            margin: 0 -2rem;
+            padding-left: 2rem;
+            padding-right: 2rem;
+        }
+
+        .why-section .section-title { color: #F4F1EC; }
+        .why-section .section-subtitle { color: #8A8580; }
+
+        .why-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0;
+            border: 2px solid rgba(244,241,236,0.12);
+            margin-top: 36px;
+        }
+
+        .why-item {
+            padding: 28px 24px;
+            border-right: 2px solid rgba(244,241,236,0.08);
+            border-bottom: 2px solid rgba(244,241,236,0.08);
+            transition: background 0.15s;
+        }
+
+        .why-item:nth-child(2n) { border-right: none; }
+        .why-item:nth-child(n+5) { border-bottom: none; }
+
+        .why-item:hover { background: rgba(224,62,26,0.06); }
+
+        .why-item i {
+            color: #E03E1A;
+            font-size: 1.1rem;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .why-item h4 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+            color: #F4F1EC;
+        }
+
+        .why-item p {
+            font-size: 0.8rem;
+            color: #8A8580;
+            line-height: 1.5;
+        }
+
+        /* ── Requirements ── */
+        .requirements-section {
+            padding: 64px 0;
+            border-bottom: 2px solid #DDD8D0;
+        }
+
+        .requirements-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0;
+            border: 2px solid #1A1613;
+            margin-top: 36px;
+        }
+
+        .req-item {
+            padding: 28px 24px;
+            border-right: 2px solid #1A1613;
+            text-align: center;
+        }
+
+        .req-item:last-child { border-right: none; }
+
+        .req-item i {
+            font-size: 1.5rem;
+            color: #E03E1A;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .req-item h4 {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #8A8580;
+            margin-bottom: 6px;
+        }
+
+        .req-item p {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        /* ── FAQ ── */
+        .faq-section {
+            padding: 64px 0;
+            border-bottom: 2px solid #DDD8D0;
+        }
+
+        .faq-list {
+            margin-top: 36px;
+            border: 2px solid #1A1613;
+        }
+
+        .faq-item {
+            border-bottom: 2px solid #1A1613;
+        }
+
+        .faq-item:last-child { border-bottom: none; }
+
+        .faq-question {
+            width: 100%;
+            padding: 20px 24px;
+            background: none;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-align: left;
+            color: #1A1613;
+            transition: background 0.15s;
+        }
+
+        .faq-question:hover { background: rgba(224,62,26,0.04); }
+
+        .faq-question i {
+            color: #E03E1A;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+        }
+
+        .faq-item.open .faq-question i { transform: rotate(45deg); }
+
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .faq-answer-inner {
+            padding: 0 24px 20px;
+            font-size: 0.88rem;
+            color: #4A4540;
+            line-height: 1.7;
+        }
+
+        .faq-item.open .faq-answer {
+            max-height: 500px;
+        }
+
+        /* ── Bottom CTA ── */
+        .bottom-cta {
+            padding: 64px 0 48px;
+            text-align: center;
+        }
+
+        .bottom-cta .section-title {
+            margin-bottom: 8px;
+        }
+
+        .bottom-cta .section-subtitle {
+            margin: 0 auto 32px;
+            text-align: center;
+        }
+
+        .bottom-cta-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* ── AI Screenshot showcase ── */
+        .ai-showcase {
+            margin-top: 36px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            align-items: start;
+        }
+
+        .ai-showcase-screenshot {
+            border: 2px solid #1A1613;
+            box-shadow: 6px 6px 0 #1A1613;
+            overflow: hidden;
+        }
+
+        .ai-showcase-screenshot .screenshot-chrome {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: #1A1613;
+            border-bottom: 2px solid #1A1613;
+        }
+
+        .ai-showcase-screenshot img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .ai-showcase-text {
+            padding: 20px 0;
+        }
+
+        .ai-showcase-text p {
+            font-size: 0.9rem;
+            color: #4A4540;
+            line-height: 1.7;
+            margin-bottom: 16px;
+        }
+
+        .ai-showcase-text ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .ai-showcase-text li {
+            font-size: 0.85rem;
+            padding: 8px 0;
+            border-bottom: 1px solid #DDD8D0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ai-showcase-text li i {
+            color: #2E7D32;
+            font-size: 0.7rem;
+        }
+
+        /* ── Dark mode ── */
+        body.dark-theme .planer-hero { border-bottom-color: #333; }
+        body.dark-theme .planer-hero h1 { color: #F4F1EC; }
+        body.dark-theme .planer-hero-desc { color: #8A8580; }
+        body.dark-theme .planer-hero-tag { border-color: #333; color: #8A8580; }
+        body.dark-theme .section-title { color: #F4F1EC; }
+        body.dark-theme .section-subtitle { color: #8A8580; }
+        body.dark-theme .modules-grid,
+        body.dark-theme .module-card { border-color: #333; }
+        body.dark-theme .module-card:hover { background: rgba(224,62,26,0.06); }
+        body.dark-theme .module-card h3 { color: #F4F1EC; }
+        body.dark-theme .module-card p { color: #8A8580; }
+
+        /* ── SmartScreen notice dark mode ── */
+        body.dark-theme .smartscreen-notice { background: rgba(224,62,26,0.1); border-color: rgba(224,62,26,0.25); color: #8A8580; }
+        body.dark-theme .smartscreen-notice strong { color: #F4F1EC; }
+        body.dark-theme .smartscreen-notice code { background: rgba(255,255,255,0.08); }
+
+        /* ── FAQ dark mode ── */
+        body.dark-theme .faq-section { border-bottom-color: #333; }
+        body.dark-theme .faq-list { border-color: #333; }
+        body.dark-theme .faq-item { border-bottom-color: #333; }
+        body.dark-theme .faq-question { color: #F4F1EC; }
+        body.dark-theme .faq-question:hover { background: rgba(224,62,26,0.08); }
+        body.dark-theme .faq-question i { color: #E03E1A; }
+        body.dark-theme .faq-answer-inner { color: #8A8580; }
+
+        @media (max-width: 768px) {
+            .planer-hero h1 { font-size: 2rem; }
+            .section-title { font-size: 1.8rem; }
+            .modules-grid { grid-template-columns: 1fr; }
+            .module-card { border-right: none !important; border-bottom: 2px solid #1A1613 !important; }
+            .module-card:last-child { border-bottom: none !important; }
+            .audience-grid { grid-template-columns: 1fr; }
+            .audience-item { border-right: none !important; border-bottom: 2px solid #1A1613 !important; }
+            .audience-item:last-child { border-bottom: none !important; }
+            .why-grid { grid-template-columns: 1fr; }
+            .why-item { border-right: none !important; }
+            .requirements-grid { grid-template-columns: 1fr; }
+            .req-item { border-right: none !important; border-bottom: 2px solid #1A1613; }
+            .req-item:last-child { border-bottom: none; }
+            .planer-hero-ctas { flex-direction: column; }
+            .btn-download { width: 100%; justify-content: center; }
+            .bottom-cta-buttons { flex-direction: column; align-items: center; }
+            .why-section { margin: 0 -0.75rem; padding-left: 0.75rem; padding-right: 0.75rem; }
+            body.dark-theme .module-card,
+            body.dark-theme .audience-item,
+            body.dark-theme .req-item { border-color: #333 !important; }
+            body.dark-theme .module-card:last-child,
+            body.dark-theme .audience-item:last-child,
+            body.dark-theme .req-item:last-child { border-bottom: none !important; }
+        }
+    </style>
+
+    <!-- Clerk Auth -->
+    <script
+      async
+      crossorigin="anonymous"
+      data-clerk-publishable-key="pk_test_c3F1YXJlLW1hcmxpbi0yNy5jbGVyay5hY2NvdW50cy5kZXYk"
+      src="https://square-marlin-27.clerk.accounts.dev/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"
+    ></script>
+</head>
+<body>
+    <script>
+    window.addEventListener('load', async () => {
+      await Clerk.load();
+      
+      if (!Clerk.user) {
+        window.location.href = '/landing.html';
+        return;
+      }
+      
+      const email = Clerk.user.primaryEmailAddress?.emailAddress;
+      const displayName = Clerk.user.fullName || Clerk.user.username || email;
+      document.getElementById('userEmail').textContent = displayName;
+      
+      document.getElementById('logoutBtn').addEventListener('click', async (e) => {
+        e.preventDefault();
+        await Clerk.signOut();
+        window.location.href = '/landing.html';
+      });
+      
+      document.body.style.display = 'block';
+    });
+    </script>
+
+    <!-- Top Navigation -->
+    <header class="top-nav">
+        <div class="nav-container">
+            <a href="index.html" class="logo" style="text-decoration:none">
+                <div class="logo-text">
+                    <h1 style="font-size: 1.1rem; margin: 0;"><span class="logo-part-prosty">Prosty</span><span class="logo-part-przetarg">Przetarg</span><span class="logo-part-pl">.pl</span></h1>
+                </div>
+            </a>
+
+            <nav class="top-nav-links">
+                <a href="index.html" class="top-nav-link"><i class="fas fa-search"></i> Przetargi</a>
+                <a href="watched.html" class="top-nav-link"><i class="fas fa-star"></i> Obserwowane</a>
+                <a href="announcements.html" class="top-nav-link"><i class="fas fa-bullhorn"></i> Ogłoszenia</a>
+                <a href="raporty.html" class="top-nav-link"><i class="fas fa-file-export"></i> Raporty</a>
+                <a href="kalendarz.html" class="top-nav-link"><i class="fas fa-calendar-alt"></i> Kalendarz</a>
+                <a href="profil.html" class="top-nav-link"><i class="fas fa-user"></i> Profil</a>
+                <a href="poradniki.html" class="top-nav-link"><i class="fas fa-book"></i> Poradniki</a>
+                <a href="planer.html" class="top-nav-link active"><i class="fas fa-calculator"></i> Planer</a>
+            </nav>
+
+            <div class="nav-actions">
+                <button id="theme-toggle" title="Przełącz tryb ciemny/jasny">
+                    <i class="fas fa-sun"></i>
+                    <i class="fas fa-moon"></i>
+                </button>
+
+                <div class="user-menu" id="userMenu">
+                    <button class="btn-user" id="userMenuBtn">
+                        <i class="fas fa-user-circle"></i>
+                        <span id="userEmail">Zaloguj się</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+
+                    <div class="dropdown" id="userDropdown">
+                        <a href="profil.html"><i class="fas fa-user"></i> Mój profil</a>
+                        <hr>
+                        <a href="#" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Wyloguj</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="main-layout no-sidebar">
+        <!-- Main Content -->
+        <main class="content">
+
+            <!-- ═══ HERO ═══ -->
+            <div class="planer-hero">
+                <div class="planer-hero-grid">
+                    <div>
+                        <div class="planer-hero-overline">2 tryby pracy · AI Asystent · W cenie subskrypcji</div>
+                        <h1>Wyceniaj z AI,<br><span>wygrywaj przetargi</span></h1>
+                        <p class="planer-hero-desc">Desktopowa aplikacja z dwoma trybami pracy: <strong>usługowy</strong> (zlecenia, materiały, robocizna) i <strong>handlowy</strong> (oferty przetargowe, katalog produktów, marże). AI Asystent wyceni za Ciebie, a moduł <strong>Cenniki</strong> pozwoli importować dane z dowolnego arkusza Excel.</p>
+                        <div class="planer-hero-tags">
+                            <span class="planer-hero-tag"><i class="fab fa-apple"></i> macOS + Windows</span>
+                            <span class="planer-hero-tag"><i class="fas fa-hard-hat"></i> Tryb usługowy</span>
+                            <span class="planer-hero-tag"><i class="fas fa-file-invoice-dollar"></i> Tryb handlowy</span>
+                            <span class="planer-hero-tag"><i class="fas fa-robot"></i> AI Asystent</span>
+                            <span class="planer-hero-tag"><i class="fas fa-file-excel"></i> Cenniki Excel</span>
+                            <span class="planer-hero-tag"><i class="fas fa-chart-line"></i> Kursy walut NBP</span>
+                            <span class="planer-hero-tag"><i class="fas fa-moon"></i> Dark mode</span>
+                            <span class="planer-hero-tag"><i class="fas fa-keyboard"></i> Skróty klawiszowe</span>
+                        </div>
+                        <div class="planer-hero-ctas">
+                            <a href="https://github.com/maciejsobolewski3-web/prosty-planer/releases/download/v0.5.0/Prosty.Planer_0.5.0_x64-setup.exe" class="btn-download"><i class="fab fa-windows"></i> Pobierz — Windows</a>
+                            <a href="https://github.com/maciejsobolewski3-web/prosty-planer/releases/download/v0.5.0/Prosty.Planer_0.5.0_aarch64.dmg" class="btn-download btn-download-secondary"><i class="fab fa-apple"></i> Pobierz — macOS (Apple Silicon)</a>
+                        </div>
+                        <p class="planer-hero-note">Wymaga aktywnej subskrypcji ProstyPrzetarg.pl · v0.5.0</p>
+                        <div class="smartscreen-notice" style="margin-top: 16px; padding: 14px 18px; background: rgba(224,62,26,0.06); border: 1.5px solid rgba(224,62,26,0.15); border-radius: 10px; font-size: 0.82rem; color: var(--ink-soft); line-height: 1.6;">
+                            <strong style="color: var(--ink);"><i class="fab fa-windows" style="color: #E03E1A; margin-right: 6px;"></i>Windows SmartScreen</strong> — Aplikacja jest bezpieczna, ale nie posiada jeszcze certyfikatu podpisu kodu (Code Signing). Przy pierwszym uruchomieniu Windows może wyświetlić ostrzeżenie. Kliknij <strong>„Więcej informacji"</strong>, a następnie <strong>„Uruchom mimo to"</strong>. Komunikat pojawia się tylko raz.
+                            <br><br>
+                            <span style="font-family: var(--font-mono, monospace); font-size: 0.72rem; color: var(--ink-muted); letter-spacing: 0.02em;">
+                                <strong style="color: var(--ink-soft);">SHA-256:</strong><br>
+                                <i class="fab fa-windows" style="margin-right: 4px;"></i>Windows: <code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; word-break: break-all;">908c4f8565b902f8fbdf1baa63a66cc804cdf1819d4adbf19fe798ed09d79593</code><br>
+                                <i class="fab fa-apple" style="margin-right: 4px;"></i>macOS: <code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; word-break: break-all;">46ac719bc4286b239ef0ce5cc9a363174ef18a39a1bf385fadeea50e20e0fdb9</code>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="planer-hero-screenshot">
+                        <div class="screenshot-chrome">
+                            <div class="screenshot-dot"></div>
+                            <div class="screenshot-dot"></div>
+                            <div class="screenshot-dot"></div>
+                            <span>Prosty Planer v0.5 — Dashboard</span>
+                        </div>
+                        <img src="assets/images/landing/planer-dashboard.png" alt="Prosty Planer — Dashboard" loading="lazy">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ AI ASYSTENT SHOWCASE ═══ -->
+            <div class="modules-section">
+                <div class="section-header">
+                    <div class="section-label">AI Asystent · Tryb usługowy i handlowy</div>
+                    <div class="section-title">Powiedz czego potrzebujesz.<br>AI wyceni za Ciebie.</div>
+                    <p class="section-subtitle">W trybie usługowym: napisz "remont łazienki 8m2" — AI zaproponuje kosztorys z materiałami i robocizną. W trybie handlowym: "oferta na 500 szt. płytek" — AI przeliczy marże i przygotuje ofertę przetargową.</p>
+                </div>
+                <div class="ai-showcase">
+                    <div class="ai-showcase-screenshot">
+                        <div class="screenshot-chrome">
+                            <div class="screenshot-dot"></div>
+                            <div class="screenshot-dot"></div>
+                            <div class="screenshot-dot"></div>
+                            <span>Asystent AI — zlecenie</span>
+                        </div>
+                        <img src="assets/images/landing/feat-ai.png" alt="Asystent AI tworzy zlecenie" loading="lazy">
+                    </div>
+                    <div class="ai-showcase-text">
+                        <p>Wbudowany asystent AI rozumie oba tryby pracy. W usługowym — generuje kosztorysy budowlane. W handlowym — przygotowuje oferty przetargowe z marżami.</p>
+                        <ul>
+                            <li><i class="fas fa-check"></i> Generuje kosztorys z materiałami i robocizną</li>
+                            <li><i class="fas fa-check"></i> Przygotowuje oferty handlowe z narzutami</li>
+                            <li><i class="fas fa-check"></i> Zna typowe stawki z polskiego rynku</li>
+                            <li><i class="fas fa-check"></i> Analizuje rentowność zleceń i ofert</li>
+                            <li><i class="fas fa-check"></i> Porównuje Twoje ceny z rynkiem</li>
+                            <li><i class="fas fa-check"></i> Pozycje lądują od razu w zleceniu/ofercie</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ MODUŁY ═══ -->
+            <div class="modules-section">
+                <div class="section-header">
+                    <div class="section-label">16+ modułów · 2 tryby pracy</div>
+                    <div class="section-title">Wszystko czego<br>potrzebujesz</div>
+                    <p class="section-subtitle">Tryb usługowy do wycen budowlanych, tryb handlowy do ofert przetargowych. AI Asystent, cenniki dostawców z mapowaniem kolumn, kursy walut z NBP, dark mode i skróty klawiszowe w obu trybach.</p>
+                </div>
+
+                <!-- Tryb usługowy -->
+                <div style="margin-bottom: 8px;">
+                    <span class="section-label" style="display: inline-block; background: #E03E1A; color: #F4F1EC; padding: 4px 12px; margin-bottom: 12px; font-size: 0.6rem;"><i class="fas fa-hard-hat" style="margin-right: 6px;"></i> Tryb usługowy — Zlecenia budowlane</span>
+                </div>
+                <div class="modules-grid" style="margin-bottom: 32px;">
+                    <div class="module-card">
+                        <div class="module-num">01</div>
+                        <div class="module-icon"><i class="fas fa-tachometer-alt"></i></div>
+                        <h3>Dashboard</h3>
+                        <p>Podsumowanie materiałów, robocizn, zleceń i wydatków. Szybki podgląd statusów i harmonogram Gantta — widzisz na pierwszy rzut oka co się dzieje w firmie.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">02</div>
+                        <div class="module-icon"><i class="fas fa-cubes"></i></div>
+                        <h3>Materiały</h3>
+                        <p>Katalog materiałów z cenami netto, VAT, kategoriami, dostawcami i linkami do sklepów. Historia zmian cen. Import i eksport danych.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">03</div>
+                        <div class="module-icon"><i class="fas fa-hard-hat"></i></div>
+                        <h3>Robocizny</h3>
+                        <p>Baza usług i prac z cenami jednostkowymi. Malowanie, gładzie, płytki, elektryka, hydraulika — wszystko z Twoimi stawkami.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">04</div>
+                        <div class="module-icon"><i class="fas fa-clipboard-list"></i></div>
+                        <h3>Zlecenia</h3>
+                        <p>Serce trybu usługowego. Wyceny z pozycjami z bazy. Drag & drop, narzut na materiały i robociznę, kalkulator dojazdu, statusy, szablony.</p>
+                    </div>
+                </div>
+
+                <!-- Tryb handlowy -->
+                <div style="margin-bottom: 8px;">
+                    <span class="section-label" style="display: inline-block; background: #1A1613; color: #F4F1EC; padding: 4px 12px; margin-bottom: 12px; font-size: 0.6rem;"><i class="fas fa-file-invoice-dollar" style="margin-right: 6px;"></i> Tryb handlowy — Oferty i przetargi</span>
+                </div>
+                <div class="modules-grid" style="margin-bottom: 32px;">
+                    <div class="module-card">
+                        <div class="module-num">05</div>
+                        <div class="module-icon"><i class="fas fa-boxes"></i></div>
+                        <h3>Katalog produktów</h3>
+                        <p>Baza produktów handlowych z cenami zakupu, sprzedaży, marżami, kodami SKU, dostawcami i kategoriami. Szybkie filtrowanie i wyszukiwanie.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">06</div>
+                        <div class="module-icon"><i class="fas fa-file-signature"></i></div>
+                        <h3>Oferty przetargowe</h3>
+                        <p>Twórz oferty z produktów z katalogu. Narzuty procentowe i kwotowe, warunki dostawy, termin ważności. Duplikuj i edytuj jednym kliknięciem.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">07</div>
+                        <div class="module-icon"><i class="fas fa-percentage"></i></div>
+                        <h3>Marże i narzuty</h3>
+                        <p>Kontrola marż na poziomie produktu i całej oferty. Narzut na transport, manipulację, ryzyko. Widoczny zysk na każdej pozycji.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">08</div>
+                        <div class="module-icon"><i class="fas fa-bolt"></i></div>
+                        <h3>Szybkie dodawanie</h3>
+                        <p>Dodawaj produkty i pozycje ofert błyskawicznie. Autouzupełnianie z katalogu, podpowiedzi cen, masowe dodawanie z listy.</p>
+                    </div>
+                </div>
+
+                <!-- Oba tryby -->
+                <div style="margin-bottom: 8px;">
+                    <span class="section-label" style="display: inline-block; background: linear-gradient(90deg, #E03E1A, #1A1613); color: #F4F1EC; padding: 4px 12px; margin-bottom: 12px; font-size: 0.6rem;"><i class="fas fa-layer-group" style="margin-right: 6px;"></i> Oba tryby — Narzędzia wspólne</span>
+                </div>
+                <div class="modules-grid">
+                    <div class="module-card">
+                        <div class="module-num">09</div>
+                        <div class="module-icon"><i class="fas fa-robot"></i></div>
+                        <h3>AI Asystent</h3>
+                        <p>Wbudowany asystent AI. W trybie usługowym wycenia zlecenia, w handlowym przygotowuje oferty. Kontekstowy — rozumie na jakiej stronie jesteś.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">10</div>
+                        <div class="module-icon"><i class="fas fa-file-excel"></i></div>
+                        <h3>Cenniki &amp; Import Excel</h3>
+                        <p>Wczytaj cennik dostawcy (XLSX, XLS, ODS, CSV), zmapuj kolumny ręcznie lub automatycznie, podgląd zmian przed importem. Aktualizuj ceny w bazie jednym kliknięciem. Eksportuj zlecenia i oferty do XLSX.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">11</div>
+                        <div class="module-icon"><i class="fas fa-wallet"></i></div>
+                        <h3>Wydatki</h3>
+                        <p>Miesięczny tracker wydatków firmy. Materiały, narzędzia, paliwo, podwykonawcy. Przypisywanie wydatków do zleceń. Kolorowy podział wizualny.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">12</div>
+                        <div class="module-icon"><i class="fas fa-chart-bar"></i></div>
+                        <h3>Wykresy i Rentowność</h3>
+                        <p>Przychody vs koszty vs zysk. Marża netto i procent dla każdego zlecenia/oferty. Struktura kosztów na pierwszy rzut oka.</p>
+                    </div>
+                </div>
+
+                <!-- Nowości v0.3.0 -->
+                <div style="margin-top: 32px; margin-bottom: 8px;">
+                    <span class="section-label" style="display: inline-block; background: #1A7A3A; color: #F4F1EC; padding: 4px 12px; margin-bottom: 12px; font-size: 0.6rem;"><i class="fas fa-sparkles" style="margin-right: 6px;"></i> Nowości w v0.5.0</span>
+                </div>
+                <div class="modules-grid">
+                    <div class="module-card">
+                        <div class="module-num">13</div>
+                        <div class="module-icon"><i class="fas fa-chart-line"></i></div>
+                        <h3>Kursy walut NBP</h3>
+                        <p>Aktualne kursy 18 walut z API Narodowego Banku Polskiego. Interaktywne wykresy z zakresem 7d–1R, przelicznik walut, wskaźniki trendu. Idealne do ofert w EUR, USD, GBP.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">14</div>
+                        <div class="module-icon"><i class="fas fa-moon"></i></div>
+                        <h3>Dark mode</h3>
+                        <p>Pełny tryb ciemny z przełączaniem jednym kliknięciem. Automatycznie dostosowuje wykresy, tabele, formularze i wszystkie widoki. Oszczędza oczy wieczorem.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">15</div>
+                        <div class="module-icon"><i class="fas fa-keyboard"></i></div>
+                        <h3>Skróty klawiszowe</h3>
+                        <p>Ctrl+1–9 do nawigacji, Ctrl+N nowe zlecenie/oferta, Ctrl+F wyszukiwanie, Ctrl+E eksport PDF, Ctrl+? cheatsheet. Power users robią wszystko z klawiatury.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">16</div>
+                        <div class="module-icon"><i class="fas fa-file-excel"></i></div>
+                        <h3>Moduł Cenniki</h3>
+                        <p>Wczytaj cennik dostawcy w dowolnym formacie (XLSX, XLS, XLSM, ODS, CSV). Zmapuj kolumny, szukaj pozycji, porównaj ceny z bazą. Podgląd importu przed zatwierdzeniem — widzisz nowe pozycje, zmiany cen i pominięte.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">17</div>
+                        <div class="module-icon"><i class="fas fa-columns"></i></div>
+                        <h3>Kanban &amp; Gantt</h3>
+                        <p>Widok Kanban do zarządzania statusami zleceń drag & drop. Harmonogram Gantta pokazuje oś czasu projektów. Dwa widoki, pełna kontrola nad workflow.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">18</div>
+                        <div class="module-icon"><i class="fas fa-tags"></i></div>
+                        <h3>Tagi &amp; wersjonowanie ofert</h3>
+                        <p>Kolorowe tagi na zleceniach i ofertach. System wersjonowania ofert — każda rewizja zapisana z datą. Porównuj wersje i wracaj do poprzednich.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">19</div>
+                        <div class="module-icon"><i class="fas fa-grip-vertical"></i></div>
+                        <h3>Drag &amp; drop pozycji</h3>
+                        <p>Przeciągaj pozycje w zleceniach i ofertach żeby zmienić kolejność. Zaznacz wiele pozycji i zobacz sumę zaznaczonych. Podgląd PDF przed eksportem.</p>
+                    </div>
+                    <div class="module-card">
+                        <div class="module-num">20</div>
+                        <div class="module-icon"><i class="fas fa-shield-alt"></i></div>
+                        <h3>Auto-backup &amp; stabilność</h3>
+                        <p>Automatyczne kopie zapasowe danych. Error boundary łapie błędy bez zawieszania aplikacji. Monitor pamięci localStorage. Splash screen i breadcrumbs nawigacji.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ JAK ZACZĄĆ — TUTORIAL ═══ -->
+            <div class="tutorial-section">
+                <div class="section-header">
+                    <div class="section-label">Jak zacząć · Krok po kroku</div>
+                    <div class="section-title">Tutorial:<br>od zera do wyceny</div>
+                    <p class="section-subtitle">Wybierz tryb pracy i zobacz jak w kilku krokach stworzyć pierwszą wycenę lub ofertę.</p>
+                </div>
+
+                <div class="tutorial-tabs">
+                    <button class="tutorial-tab active" onclick="showTutorial('start')"><i class="fas fa-rocket" style="margin-right:6px"></i> Szybki start</button>
+                    <button class="tutorial-tab" onclick="showTutorial('uslugowy')"><i class="fas fa-hard-hat" style="margin-right:6px"></i> Tryb usługowy</button>
+                    <button class="tutorial-tab" onclick="showTutorial('handlowy')"><i class="fas fa-file-invoice-dollar" style="margin-right:6px"></i> Tryb handlowy</button>
+                    <button class="tutorial-tab" onclick="showTutorial('ai')"><i class="fas fa-robot" style="margin-right:6px"></i> AI Asystent</button>
+                </div>
+
+                <div class="tutorial-content">
+                    <!-- Panel: Szybki start -->
+                    <div class="tutorial-panel active" id="tutorial-start">
+                        <ol class="tutorial-steps">
+                            <li class="tutorial-step">
+                                <h4>Pobierz i zainstaluj</h4>
+                                <p>Pobierz wersję dla swojego systemu (Windows lub macOS) z przycisków powyżej. Instalacja trwa ~30 sekund.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Zaloguj się</h4>
+                                <p>Przy pierwszym uruchomieniu zaloguj się kontem z ProstyPrzetarg.pl. Wymagana aktywna subskrypcja.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Wybierz tryb pracy</h4>
+                                <p>Na dashboardzie wybierz: <code>Tryb usługowy</code> (zlecenia budowlane, materiały, robocizna) lub <code>Tryb handlowy</code> (oferty przetargowe, katalog produktów, marże). Możesz przełączać w dowolnym momencie.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Uzupełnij dane firmy</h4>
+                                <p>Wejdź w <code>Moja Firma</code> i uzupełnij: nazwa, NIP, adres, logo. Te dane będą automatycznie wstawiane do generowanych PDF-ów.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Importuj dane z cennika dostawcy (opcjonalnie)</h4>
+                                <p>Masz cennik dostawcy w Excelu? Wejdź w <code>Cenniki</code>, dodaj plik (XLSX, XLS, ODS, CSV), zmapuj kolumny i zaimportuj pozycje do bazy materiałów lub produktów. Podgląd zmian przed importem.</p>
+                            </li>
+                        </ol>
+                        <div class="tutorial-tip">
+                            <strong>💡 Tip:</strong> Nie musisz ręcznie dodawać materiałów ani produktów. AI Asystent może wygenerować pozycje za Ciebie — wystarczy opisać co potrzebujesz.
+                        </div>
+                    </div>
+
+                    <!-- Panel: Tryb usługowy -->
+                    <div class="tutorial-panel" id="tutorial-uslugowy">
+                        <ol class="tutorial-steps">
+                            <li class="tutorial-step">
+                                <h4>Dodaj materiały do bazy</h4>
+                                <p>Wejdź w <code>Materiały</code> → kliknij <code>+ Dodaj materiał</code>. Podaj nazwę, cenę netto, VAT, kategorię, dostawcę. Albo zaimportuj z cennika dostawcy przez moduł Cenniki.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Dodaj robocizny</h4>
+                                <p>Wejdź w <code>Robocizny</code> → kliknij <code>+ Dodaj robociznę</code>. Wpisz rodzaj pracy (np. malowanie, gładzie), cenę za jednostkę (m², mb, szt.).</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Stwórz zlecenie</h4>
+                                <p>Wejdź w <code>Zlecenia</code> → <code>+ Nowe zlecenie</code>. Nadaj nazwę (np. "Remont łazienki Kowalski"), dodaj klienta, datę, status.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Dodaj pozycje do zlecenia</h4>
+                                <p>W widoku zlecenia kliknij <code>+ Dodaj pozycję</code>. Wybierz materiał lub robociznę z bazy, podaj ilość. Kwoty wyliczą się automatycznie z narzutami.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Eksportuj wycenę do PDF</h4>
+                                <p>Kliknij <code>Eksport PDF</code> — dostaniesz profesjonalną wycenę z logo firmy, tabelą pozycji, narzutami i podsumowaniem. Gotowa do wysłania klientowi.</p>
+                            </li>
+                        </ol>
+                        <div class="tutorial-tip">
+                            <strong>💡 Tip:</strong> Użyj drag & drop żeby zmienić kolejność pozycji w zleceniu. Kliknij <code>Duplikuj</code> żeby szybko skopiować zlecenie jako szablon.
+                        </div>
+                    </div>
+
+                    <!-- Panel: Tryb handlowy -->
+                    <div class="tutorial-panel" id="tutorial-handlowy">
+                        <ol class="tutorial-steps">
+                            <li class="tutorial-step">
+                                <h4>Zbuduj katalog produktów</h4>
+                                <p>Wejdź w <code>Katalog produktów</code> → <code>+ Dodaj produkt</code>. Podaj nazwę, cenę zakupu, cenę sprzedaży, SKU, dostawcę, kategorię. Albo importuj z cennika dostawcy przez moduł Cenniki.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Stwórz ofertę przetargową</h4>
+                                <p>Wejdź w <code>Oferty</code> → <code>+ Nowa oferta</code>. Podaj numer przetargu, zamawiającego, termin składania, warunki dostawy.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Dodaj produkty do oferty</h4>
+                                <p>W widoku oferty kliknij <code>+ Dodaj pozycję</code>. Wybierz produkt z katalogu, podaj ilość. Cena, marża i narzuty obliczą się automatycznie.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Ustaw narzuty i marże</h4>
+                                <p>Dodaj narzuty procentowe lub kwotowe: transport, manipulacja, ryzyko, zysk. Widzisz od razu marżę na każdej pozycji i na całej ofercie.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Eksportuj ofertę</h4>
+                                <p>Kliknij <code>Eksport PDF</code> — gotowa oferta z wszystkimi pozycjami, narzutami, danymi firmy i warunkami. Albo <code>Eksport CSV</code> do dalszej obróbki.</p>
+                            </li>
+                        </ol>
+                        <div class="tutorial-tip">
+                            <strong>💡 Tip:</strong> Duplikuj starą ofertę jednym kliknięciem i zmień tylko ceny — oszczędzasz czas przy powtarzalnych przetargach.
+                        </div>
+                    </div>
+
+                    <!-- Panel: AI Asystent -->
+                    <div class="tutorial-panel" id="tutorial-ai">
+                        <ol class="tutorial-steps">
+                            <li class="tutorial-step">
+                                <h4>Otwórz AI Asystenta</h4>
+                                <p>Kliknij ikonę <code>🤖</code> w prawym dolnym rogu. AI Asystent jest dostępny na każdej stronie. Na stronach zleceń/ofert jest kontekstowy — wie co edytujesz.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Opisz czego potrzebujesz</h4>
+                                <p><strong>Tryb usługowy:</strong> napisz np. <code>remont łazienki 8m2</code>, <code>malowanie mieszkania 60m2</code>, <code>wymiana instalacji elektrycznej</code>. AI zaproponuje materiały i robocizny z cenami.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>W trybie handlowym</h4>
+                                <p>Napisz np. <code>oferta na 200 szt. płytek gresowych</code>, <code>wycena dostawy materiałów izolacyjnych</code>. AI przeliczy marże i przygotuje pozycje ofertowe.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Przejrzyj i zatwierdź</h4>
+                                <p>AI pokaże propozycję z listą pozycji. Kliknij <code>Dodaj do zlecenia</code> lub <code>Dodaj do oferty</code> — pozycje wylądują bezpośrednio w dokumencie. Możesz je potem edytować.</p>
+                            </li>
+                            <li class="tutorial-step">
+                                <h4>Zapytaj o analizę</h4>
+                                <p>Na stronie zlecenia/oferty zapytaj AI: <code>czy ta wycena jest opłacalna?</code>, <code>co mogę obniżyć?</code>, <code>porównaj z cenami rynkowymi</code>. AI przeanalizuje dane i doradzi.</p>
+                            </li>
+                        </ol>
+                        <div class="tutorial-tip">
+                            <strong>💡 Tip:</strong> AI Asystent jest kontekstowy — na stronie zlecenia widzi jego pozycje i może je analizować. Na liście materiałów pomoże Ci uzupełnić bazę.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ DLA KOGO ═══ -->
+            <div class="audience-section">
+                <div class="section-header">
+                    <div class="section-label">Dla kogo</div>
+                    <div class="section-title">Wyceny lub oferty?<br>Mamy oba tryby.</div>
+                </div>
+                <div class="audience-grid">
+                    <div class="audience-item">
+                        <i class="fas fa-hammer"></i>
+                        <span>Wykonawcy budowlani i remontowi <small style="color:#8A8580">(tryb usługowy)</small></span>
+                    </div>
+                    <div class="audience-item">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                        <span>Firmy składające oferty przetargowe <small style="color:#8A8580">(tryb handlowy)</small></span>
+                    </div>
+                    <div class="audience-item">
+                        <i class="fas fa-bolt"></i>
+                        <span>Elektrycy, hydraulicy, glazurnicy, malarze</span>
+                    </div>
+                    <div class="audience-item">
+                        <i class="fas fa-boxes"></i>
+                        <span>Dostawcy materiałów i hurtownie</span>
+                    </div>
+                    <div class="audience-item">
+                        <i class="fas fa-paint-roller"></i>
+                        <span>Firmy wykończeniowe i małe ekipy (1–10 osób)</span>
+                    </div>
+                    <div class="audience-item">
+                        <i class="fas fa-table"></i>
+                        <span>Każdy kto robi wyceny w Excelu i ma tego dość</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ DLACZEGO ═══ -->
+            <div class="why-section">
+                <div class="section-label">Dlaczego Prosty Planer</div>
+                <div class="section-title">Nie kolejny SaaS<br>w przeglądarce</div>
+                <p class="section-subtitle">Natywna aplikacja na Twój komputer. 2 tryby pracy, AI, kursy walut, cenniki dostawców. Twoje dane, Twoja kontrola.</p>
+                <div class="why-grid">
+                    <div class="why-item">
+                        <i class="fas fa-exchange-alt"></i>
+                        <h4>2 tryby w jednej apce</h4>
+                        <p>Usługowy do zleceń budowlanych, handlowy do ofert przetargowych. Przełączasz jednym kliknięciem.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-robot"></i>
+                        <h4>AI wycenia za Ciebie</h4>
+                        <p>Asystent AI który rozumie budowlankę i handel. Zna materiały, stawki, marże rynkowe.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-chart-line"></i>
+                        <h4>Kursy walut na żywo</h4>
+                        <p>18 walut z API NBP. Interaktywne wykresy, przelicznik, trendy. Wyceniaj oferty w EUR/USD/GBP z aktualnymi kursami.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-file-excel"></i>
+                        <h4>Cenniki dostawców + eksport XLSX</h4>
+                        <p>Wczytaj cennik w dowolnym formacie, zmapuj kolumny, porównaj ceny i importuj do bazy. Eksportuj zlecenia i oferty do Excela.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-moon"></i>
+                        <h4>Dark mode + skróty</h4>
+                        <p>Pełny tryb ciemny dla komfortu. Skróty klawiszowe (Ctrl+1–9, Ctrl+N, Ctrl+E) dla power userów.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-columns"></i>
+                        <h4>Kanban + Gantt</h4>
+                        <p>Tablica Kanban do zarządzania statusami. Harmonogram Gantta z osią czasu. Drag & drop pozycji.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-wifi-slash"></i>
+                        <h4>Działa offline</h4>
+                        <p>Nie potrzebujesz internetu do pracy. Połączenie tylko do AI, walut i aktualizacji.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-hdd"></i>
+                        <h4>Dane na Twoim dysku</h4>
+                        <p>Plik JSON — możesz skopiować, zbackupować, przenieść. Auto-backup, zero chmury, pełna kontrola.</p>
+                    </div>
+                    <div class="why-item">
+                        <i class="fas fa-tags"></i>
+                        <h4>W cenie subskrypcji</h4>
+                        <p>Żadnych dodatkowych opłat. Planer jest w pakiecie z platformą przetargową.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ WYMAGANIA ═══ -->
+            <div class="requirements-section">
+                <div class="section-header">
+                    <div class="section-label">Wymagania systemowe</div>
+                    <div class="section-title">Instalacja w 30 sekund</div>
+                </div>
+                <div class="requirements-grid">
+                    <div class="req-item">
+                        <i class="fas fa-desktop"></i>
+                        <h4>System</h4>
+                        <p>Windows 10/11 (64-bit) lub macOS 12+</p>
+                    </div>
+                    <div class="req-item">
+                        <i class="fas fa-hdd"></i>
+                        <h4>Dysk</h4>
+                        <p>~50 MB wolnego miejsca</p>
+                    </div>
+                    <div class="req-item">
+                        <i class="fas fa-key"></i>
+                        <h4>Licencja</h4>
+                        <p>Aktywna subskrypcja ProstyPrzetarg.pl</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ FAQ ═══ -->
+            <div class="faq-section">
+                <div class="section-header">
+                    <div class="section-label">Najczęstsze pytania</div>
+                    <div class="section-title">FAQ</div>
+                </div>
+                <div class="faq-list">
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Czym się różni tryb usługowy od handlowego?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner"><strong>Tryb usługowy</strong> to wyceny budowlane — zlecenia z materiałami i robocizną, narzuty, dojazd, rentowność. Idealny dla wykonawców remontowych.<br><br><strong>Tryb handlowy</strong> to oferty przetargowe — katalog produktów z cenami zakupu/sprzedaży, marże procentowe i kwotowe, warunki dostawy. Idealny dla firm składających oferty na dostawy materiałów.<br><br>Możesz przełączać między trybami w dowolnym momencie. Dane obu trybów są niezależne.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Czy AI Asystent działa w obu trybach?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Tak. AI Asystent automatycznie dostosowuje się do trybu. W usługowym generuje kosztorysy budowlane, w handlowym przygotowuje pozycje ofertowe z marżami. Jest też kontekstowy — na stronie zlecenia/oferty widzi i analizuje jego pozycje.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Czy mogę importować dane z Excela?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Tak. Wejdź w moduł <strong>Cenniki</strong>, dodaj plik Excel (XLSX, XLS, XLSM, ODS, CSV) i zmapuj kolumny (nazwa, cena, jednostka, VAT, dostawca). Aplikacja automatycznie rozpozna strukturę. Przed importem zobaczysz podgląd — ile pozycji zostanie dodanych, zaktualizowanych i pominiętych. Możesz też szybko importować z przycisku „Import Excel" na liście materiałów/produktów.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Czy mogę korzystać bez subskrypcji?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Nie. Prosty Planer wymaga aktywnej subskrypcji ProstyPrzetarg.pl. Po wygaśnięciu subskrypcji aplikacja pokaże ekran odnowienia.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Czy moje dane są bezpieczne?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Tak. Wszystkie dane (materiały, produkty, zlecenia, oferty, wydatki) są zapisane lokalnie na Twoim komputerze w pliku JSON. Nie wysyłamy ich na serwer. Jedyne co łączy się z internetem to logowanie, AI asystent i sprawdzanie aktualizacji.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Czy mogę przenieść dane na inny komputer?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Tak. Skopiuj plik prostyplaner-data.json z folderu aplikacji na nowy komputer. Gotowe. Dane obu trybów (usługowy i handlowy) są w jednym pliku.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Windows pokazuje ostrzeżenie SmartScreen
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">To normalne dla nowych aplikacji. Kliknij "Więcej informacji" → "Uruchom mimo to". Aplikacja jest bezpieczna.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Skąd biorą się kursy walut?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Kursy walut pobierane są z oficjalnego API Narodowego Banku Polskiego (NBP). Aktualizują się automatycznie przy uruchomieniu i przy wejściu na widget walutowy. Dostępne jest 18 walut (EUR, USD, GBP, CHF, CZK, SEK i inne). Wykresy historyczne pokazują dane z zakresu 7 dni do 1 roku.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Czy mogę eksportować do Excela?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Tak. Zlecenia i oferty możesz eksportować do plików .xlsx (Excel) z pełnym formatowaniem — nagłówki, tabela pozycji, podsumowanie. Pliki są gotowe do wysłania klientowi lub księgowej. Import działa w drugą stronę — przez moduł Cenniki wczytasz dowolny arkusz dostawcy (XLSX, XLS, ODS, CSV) i zaimportujesz do bazy.</div>
+                        </div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+                            Jakie skróty klawiszowe są dostępne?
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <div class="faq-answer-inner">Ctrl+1 do Ctrl+9 — nawigacja między modułami. Ctrl+N — nowe zlecenie/oferta. Ctrl+F — wyszukiwanie. Ctrl+E — eksport PDF. Ctrl+D — dark mode. Ctrl+Shift+N — notatki globalne. Ctrl+? — pełna ściągawka skrótów. Lista skrótów wyświetla się też po kliknięciu ikony klawiatury.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ BOTTOM CTA ═══ -->
+            <div class="bottom-cta">
+                <div class="section-title">Gotowy?</div>
+                <p class="section-subtitle">20+ modułów · 2 tryby pracy · AI Asystent · Cenniki Excel · Kursy walut · Dark mode — pobierz i zacznij wyceniać.</p>
+                <div class="bottom-cta-buttons">
+                    <a href="https://github.com/maciejsobolewski3-web/prosty-planer/releases/download/v0.5.0/Prosty.Planer_0.5.0_x64-setup.exe" class="btn-download"><i class="fab fa-windows"></i> Pobierz — Windows</a>
+                    <a href="https://github.com/maciejsobolewski3-web/prosty-planer/releases/download/v0.5.0/Prosty.Planer_0.5.0_aarch64.dmg" class="btn-download btn-download-secondary"><i class="fab fa-apple"></i> Pobierz — macOS (Apple Silicon)</a>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Mobile Bottom Navigation -->
+    <nav class="mobile-nav">
+        <a href="index.html" class="mobile-nav-item">
+            <i class="fas fa-search"></i>
+            <span>Szukaj</span>
+        </a>
+        <a href="watched.html" class="mobile-nav-item">
+            <i class="fas fa-star"></i>
+            <span>Obsew.</span>
+        </a>
+        <a href="kalendarz.html" class="mobile-nav-item">
+            <i class="fas fa-calendar-alt"></i>
+            <span>Kalend.</span>
+        </a>
+        <div class="mobile-nav-item mobile-nav-more" id="mobileNavMore">
+            <i class="fas fa-ellipsis-h"></i>
+            <span>Więcej</span>
+            <div class="mobile-nav-more-menu" id="mobileNavMoreMenu">
+                <a href="raporty.html" class="more-menu-item"><i class="fas fa-file-export"></i><span>Raporty</span></a>
+                <a href="firmy.html" class="more-menu-item"><i class="fas fa-building"></i><span>Firmy</span></a>
+                <a href="profil.html" class="more-menu-item"><i class="fas fa-user"></i><span>Profil</span></a>
+                <a href="announcements.html" class="more-menu-item"><i class="fas fa-bullhorn"></i><span>Ogłoszenia</span></a>
+                <a href="poradniki.html" class="more-menu-item"><i class="fas fa-book"></i><span>Poradniki</span></a>
+                <div class="more-menu-divider"></div>
+                <a href="regulamin.html?v=2" class="more-menu-item more-menu-item-secondary"><i class="fas fa-file-alt"></i><span>Regulamin</span></a>
+                <a href="prywatnosc.html" class="more-menu-item more-menu-item-secondary"><i class="fas fa-shield-alt"></i><span>Prywatność</span></a>
+                <a href="kontakt.html" class="more-menu-item more-menu-item-secondary"><i class="fas fa-envelope"></i><span>Kontakt</span></a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Scripts -->
+    <script>
+    // Theme toggle
+    const toggle = document.getElementById('theme-toggle');
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark') document.body.classList.add('dark-theme');
+    
+    toggle?.addEventListener('click', () => {
+        document.body.classList.toggle('dark-theme');
+        localStorage.setItem('theme', document.body.classList.contains('dark-theme') ? 'dark' : 'light');
+    });
+
+    // User menu dropdown
+    document.getElementById('userMenuBtn')?.addEventListener('click', () => {
+        document.getElementById('userDropdown')?.classList.toggle('active');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.user-menu')) {
+            document.getElementById('userDropdown')?.classList.remove('active');
+        }
+    });
+
+    // Mobile nav more menu
+    document.getElementById('mobileNavMore')?.addEventListener('click', function(e) {
+        if (!e.target.closest('.mobile-nav-more-menu')) {
+            document.getElementById('mobileNavMoreMenu')?.classList.toggle('active');
+        }
+    });
+
+    // Tutorial tabs
+    function showTutorial(id) {
+        document.querySelectorAll('.tutorial-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tutorial-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById('tutorial-' + id)?.classList.add('active');
+        event.currentTarget.classList.add('active');
+    }
+    </script>
+</body>
+</html>

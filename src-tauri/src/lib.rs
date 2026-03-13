@@ -16,6 +16,16 @@ pub fn run() {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let _ = app.deep_link().register_all();
             }
+
+            // Otwórz DevTools w production buildach (F12)
+            #[cfg(feature = "devtools")]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
