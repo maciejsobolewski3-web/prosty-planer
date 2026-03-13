@@ -68,7 +68,7 @@ function sheetsToAIText(sheets: ParsedSheet[], offset = 0, limit = AI_ROW_LIMIT)
 }
 
 /** Clean price string: "12 345,67" → 12345.67, "1.234,56" → 1234.56 */
-function sanitizePrice(val: any): number {
+export function sanitizePrice(val: any): number {
   if (typeof val === "number") return isNaN(val) ? 0 : val;
   if (typeof val !== "string") return 0;
   let s = val.trim().replace(/\s/g, ""); // remove spaces

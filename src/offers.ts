@@ -49,6 +49,7 @@ import {
   renderTagPicker,
   getSelectedTags,
 } from "./ui";
+import { sanitizePrice } from "./excel-ai-import";
 import { renderClientPicker, quickAddClientFromName } from "./klienci";
 import { dpHeader, dpSections, dpFooter, dpCollect, dpValidate, dpBindActions, dpFocus, type DPSection, type DPFooterButton } from "./detail-page";
 import { dangerModal } from "./danger-modal";
@@ -1013,6 +1014,7 @@ function openAddOfferItemModal(offerId: number): void {
     <div class="item-tabs">
       <button class="item-tab active" data-oitab="search"><i class="fa-solid fa-magnifying-glass"></i> Z cennika</button>
       <button class="item-tab" data-oitab="manual"><i class="fa-solid fa-pen"></i> Ręcznie</button>
+      <button class="item-tab" data-oitab="excel"><i class="fa-solid fa-file-excel"></i> Z Excela</button>
     </div>
     <div id="offer-item-tab-content"></div>
     <div class="modal-footer">
@@ -1037,6 +1039,7 @@ function renderOfferItemTab(tab: string, offerId: number): void {
   const container = document.getElementById("offer-item-tab-content")!;
   if (tab === "search") renderSearchProductTab(container, offerId);
   else if (tab === "manual") renderManualItemTab(container, offerId);
+  else if (tab === "excel") renderExcelImportTab(container, offerId);
 }
 
 function renderSearchProductTab(container: HTMLElement, offerId: number): void {
@@ -1225,7 +1228,274 @@ function renderManualItemTab(container: HTMLElement, offerId: number): void {
 
 
 // ═══════════════════════════════════════════════════════════════════
-// EXCEL IMPORT
+// EXCEL → WYCENY (BULK IMPORT)
+// ═══════════════════════════════════════════════════════════════════
+
+interface ExcelImportRow {
+  name: string;
+  unit: string;
+  quantity: number;
+  price: number;
+  vat_rate: number;
+}
+
+interface ExcelImportData {
+  filename: string;
+  rows: ExcelImportRow[];
+  hasUnitPrice: boolean;
+  hasTotalPrice: boolean;
+  hasVat: boolean;
+}
+
+interface ColMap {
+  lp: number; name: number; unit: number; quantity: number;
+  unit_price_net: number; total_net: number; vat_rate: number; total_gross: number;
+}
+
+function detectExcelColumns(rows: any[][]): { headerIdx: number; colMap: ColMap } {
+  const patterns: Record<string, RegExp> = {
+    lp: /^(lp\.?|l\.?p\.?|nr)$/i,
+    name: /(nazwa|opis|przedmiot|asortyment|produkt)/i,
+    unit: /(jednostka|jm|j\.m|jedn)/i,
+    quantity: /(ilo|szacunkowa)/i,
+    unit_price_net: /(cena\s*(jedn|netto)|cena\s*za\s*jedn)/i,
+    total_net: /(warto[śs][ćc]\s*netto|warto[śs][ćc]\s*og[oó])/i,
+    vat_rate: /(stawk[ae]\s*vat|vat\s*%|%\s*vat)/i,
+    total_gross: /(warto[śs][ćc]\s*brutto|brutto)/i,
+  };
+
+  let headerIdx = 0;
+  let colMap: ColMap = { lp: -1, name: -1, unit: -1, quantity: -1, unit_price_net: -1, total_net: -1, vat_rate: -1, total_gross: -1 };
+
+  for (let r = 0; r < Math.min(rows.length, 10); r++) {
+    const row = rows[r].map((c: any) => String(c || "").trim());
+    let matches = 0;
+    const tmp: ColMap = { lp: -1, name: -1, unit: -1, quantity: -1, unit_price_net: -1, total_net: -1, vat_rate: -1, total_gross: -1 };
+
+    for (let c = 0; c < row.length; c++) {
+      const cell = row[c];
+      for (const [key, regex] of Object.entries(patterns)) {
+        if ((tmp as any)[key] === -1 && regex.test(cell)) {
+          (tmp as any)[key] = c;
+          if (["lp", "name", "unit", "quantity"].includes(key)) matches++;
+        }
+      }
+    }
+
+    if (matches >= 2 && tmp.name >= 0) { headerIdx = r; colMap = tmp; break; }
+  }
+
+  return { headerIdx, colMap };
+}
+
+async function parseExcelForOfferItems(): Promise<ExcelImportData | null> {
+  const filePath = await dialogOpen({
+    title: "Wybierz plik Excel lub CSV",
+    filters: [{ name: "Excel / CSV", extensions: ["xlsx", "xls", "csv"] }],
+  });
+  if (!filePath) return null;
+
+  const fileData = await readFile(filePath as string);
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.read(fileData, { type: "array" });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+  if (rows.length < 2) { showToast("Plik jest pusty"); return null; }
+
+  const { headerIdx, colMap } = detectExcelColumns(rows);
+
+  if (colMap.name === -1) { showToast("Nie znaleziono kolumny z nazwami"); return null; }
+
+  const importRows: ExcelImportRow[] = [];
+
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length === 0) continue;
+
+    const name = String(row[colMap.name] || "").trim();
+    if (!name || name.length < 2) continue;
+
+    const unit = colMap.unit >= 0 ? String(row[colMap.unit] || "").trim() || "szt" : "szt";
+
+    let quantity = 1;
+    if (colMap.quantity >= 0) {
+      const parsedQty = parseFloat(String(row[colMap.quantity] || "0").replace(",", "."));
+      if (!isNaN(parsedQty) && parsedQty > 0) quantity = parsedQty;
+    }
+
+    let vat_rate = 23;
+    if (colMap.vat_rate >= 0) {
+      const parsedVat = parseInt(String(row[colMap.vat_rate] || "0"));
+      if (!isNaN(parsedVat) && parsedVat >= 0 && parsedVat <= 100) vat_rate = parsedVat;
+    }
+
+    let price = 0;
+    if (colMap.unit_price_net >= 0) {
+      price = sanitizePrice(row[colMap.unit_price_net]);
+    } else if (colMap.total_net >= 0) {
+      const total = sanitizePrice(row[colMap.total_net]);
+      price = quantity > 0 ? Math.round((total / quantity) * 100) / 100 : total;
+    } else if (colMap.total_gross >= 0) {
+      const gross = sanitizePrice(row[colMap.total_gross]);
+      const divisor = 1 + vat_rate / 100;
+      const net = divisor > 0 ? gross / divisor : gross;
+      price = quantity > 0 ? Math.round((net / quantity) * 100) / 100 : net;
+    }
+    if (price < 0) price = 0;
+
+    importRows.push({ name, unit, quantity, price, vat_rate });
+  }
+
+  if (importRows.length === 0) { showToast("Nie znaleziono pozycji"); return null; }
+
+  const pathStr = String(filePath);
+  return {
+    filename: pathStr.split(/[/\\]/).pop() || "import.xlsx",
+    rows: importRows,
+    hasUnitPrice: colMap.unit_price_net >= 0,
+    hasTotalPrice: colMap.total_net >= 0 || colMap.total_gross >= 0,
+    hasVat: colMap.vat_rate >= 0,
+  };
+}
+
+function showExcelImportPreview(offerId: number, data: ExcelImportData): void {
+  const o = getOfferById(offerId);
+  if (!o) return;
+  const margin = o.global_margin || 0;
+
+  const fmtQty = (q: number) => q % 1 === 0 ? String(q) : q.toFixed(2).replace(".", ",");
+
+  const rowsHtml = data.rows.map((row, i) => {
+    const offerPrice = Math.round(row.price * (1 + margin / 100) * 100) / 100;
+    return `<tr>
+      <td style="text-align:center">${i + 1}</td>
+      <td>${esc(row.name)}</td>
+      <td style="text-align:center">${esc(row.unit)}</td>
+      <td style="text-align:right">${fmtQty(row.quantity)}</td>
+      <td style="text-align:right">${formatPrice(row.price)} zł</td>
+      <td style="text-align:right">${formatPrice(offerPrice)} zł</td>
+      <td style="text-align:center">${row.vat_rate}%</td>
+      <td style="text-align:center"><input type="checkbox" data-eicheck="${i}" checked /></td>
+    </tr>`;
+  }).join("");
+
+  openModal(`
+    <h2 class="modal-title"><i class="fa-solid fa-file-excel" style="color:#217346"></i> Import z Excela</h2>
+    <div style="margin-bottom:12px;font-size:13px;color:var(--muted)">
+      <strong>${esc(data.filename)}</strong> — ${data.rows.length} pozycji
+    </div>
+    <div style="margin-bottom:14px;display:flex;gap:16px;align-items:center;font-size:13px">
+      <label style="font-weight:500">Marża (%):</label>
+      <input type="number" id="ei-margin" value="${margin}" min="0" max="999" step="0.5" style="width:70px;padding:4px 8px" />
+      <span style="color:var(--muted);font-size:12px">(cena zakupu + marża = cena ofertowa)</span>
+    </div>
+    <div style="max-height:55vh;overflow-y:auto">
+      <table class="data-table" style="font-size:12px">
+        <thead><tr>
+          <th style="width:40px">Lp.</th>
+          <th>Nazwa</th>
+          <th style="width:50px">Jedn.</th>
+          <th style="width:55px">Ilość</th>
+          <th style="width:90px">Cena zakupu</th>
+          <th style="width:90px">Cena oferty</th>
+          <th style="width:45px">VAT</th>
+          <th style="width:35px"><input type="checkbox" id="ei-check-all" checked /></th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
+      <button class="btn" id="btn-ei-cancel">Anuluj</button>
+      <button class="btn btn-primary" id="btn-ei-import"><i class="fa-solid fa-plus"></i> Importuj do wyceny</button>
+    </div>
+  `, "modal-lg");
+
+  // Check-all toggle
+  document.getElementById("ei-check-all")?.addEventListener("change", (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    document.querySelectorAll<HTMLInputElement>("[data-eicheck]").forEach((cb) => { cb.checked = checked; });
+  });
+
+  // Margin change → update offer prices in table
+  document.getElementById("ei-margin")?.addEventListener("input", () => {
+    const m = parseFloat((document.getElementById("ei-margin") as HTMLInputElement).value) || 0;
+    const tbody = document.querySelector(".data-table tbody")!;
+    data.rows.forEach((row, i) => {
+      const tr = tbody.children[i] as HTMLTableRowElement;
+      if (!tr) return;
+      const newOffer = Math.round(row.price * (1 + m / 100) * 100) / 100;
+      tr.cells[5].textContent = formatPrice(newOffer) + " zł";
+    });
+  });
+
+  // Cancel
+  document.getElementById("btn-ei-cancel")!.addEventListener("click", closeModal);
+
+  // Import
+  document.getElementById("btn-ei-import")!.addEventListener("click", () => {
+    const m = parseFloat((document.getElementById("ei-margin") as HTMLInputElement).value) || 0;
+    let added = 0;
+
+    data.rows.forEach((row, i) => {
+      const cb = document.querySelector<HTMLInputElement>(`[data-eicheck="${i}"]`);
+      if (!cb?.checked) return;
+
+      addOfferItem(offerId, {
+        product_id: null,
+        name: row.name,
+        unit: row.unit,
+        quantity: row.quantity,
+        purchase_price: row.price,
+        offer_price: Math.round(row.price * (1 + m / 100) * 100) / 100,
+        vat_rate: row.vat_rate,
+        margin_percent: m,
+        matched: false,
+        notes: "",
+      });
+      added++;
+    });
+
+    closeModal();
+    const label = added === 1 ? "pozycję" : (added >= 2 && added <= 4) ? "pozycje" : "pozycji";
+    showToast(`Zaimportowano ${added} ${label} z Excela`);
+    renderDetail(offerId);
+  });
+}
+
+function renderExcelImportTab(container: HTMLElement, offerId: number): void {
+  container.innerHTML = `
+    <div style="margin-top:20px;text-align:center">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Wgraj plik Excel/CSV z pozycjami — nazwy, ilości, ceny zostaną wykryte automatycznie</p>
+      <button class="btn btn-primary" id="btn-ei-select">
+        <i class="fa-solid fa-file-import"></i> Wybierz plik Excel / CSV
+      </button>
+      <div id="ei-status" style="margin-top:14px;color:var(--muted);font-size:12px"></div>
+    </div>
+  `;
+
+  document.getElementById("btn-ei-select")!.addEventListener("click", async () => {
+    const statusEl = document.getElementById("ei-status")!;
+    statusEl.textContent = "Wczytywanie pliku...";
+    try {
+      const data = await parseExcelForOfferItems();
+      if (data) {
+        closeModal();
+        showExcelImportPreview(offerId, data);
+      } else {
+        statusEl.textContent = "Wybierz inny plik lub sprawdź jego zawartość";
+      }
+    } catch (err) {
+      console.error("Excel import error:", err);
+      statusEl.textContent = "Nie udało się wczytać pliku. Spróbuj ponownie.";
+    }
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// EXCEL IMPORT (FORMULARZ PRZETARGOWY)
 // ═══════════════════════════════════════════════════════════════════
 async function openImportExcelModal(offerId: number): Promise<void> {
   const o = getOfferById(offerId);
